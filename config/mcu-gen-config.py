@@ -155,6 +155,10 @@ def gr_heep_config():
         #         "offset": 0x00003000,
         #         "length": 0x00001000,
         #     },
+        "xmss": {
+            "offset": 0x000A0000,
+            "length": 0x00010000,
+        },
     }
 
     ao_spc_num = 1

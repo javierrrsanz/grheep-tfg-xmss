@@ -12,6 +12,7 @@ filesets:
     depend:
     - x-heep::packages
     - x-heep:ip:pad_control
+    - gr-heep:ip:xmss:1.0
     - openhwgroup.org:systems:core-v-mini-mcu
     files:
     - hw/gr-heep/gr_heep_pkg.sv
