@@ -82,6 +82,8 @@ format-python:
 .PHONY: mcu-gen
 mcu-gen: | $(BUILD_DIR)/
 	@echo "### Building X-HEEP MCU for '$(TARGET)'..."
+	@echo "### Ensuring X-HEEP Python venv exists..."
+	$(MAKE) -C $(X_HEEP_DIR) venv
 	$(MAKE) -f $(XHEEP_MAKE) mcu-gen \
 		X_HEEP_CFG=$(X_HEEP_CFG) \
 		PYTHON_X_HEEP_CFG=$(PYTHON_X_HEEP_CFG) \

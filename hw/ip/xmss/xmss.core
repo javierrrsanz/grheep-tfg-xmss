@@ -1,0 +1,45 @@
+CAPI=2:
+name: "gr-heep:ip:xmss:1.0"
+description: "XMSS accelerator IP for GR-HEEP (VHDL sources)"
+
+filesets:
+  files_rtl:
+    files:
+      # 1. PAQUETES PRIMERO (Ajusta el orden exacto según tus dependencias)
+      - rtl/src/xmss_main_typedef.vhd
+      - rtl/src/params.vhd
+      - rtl/src/sha_functions.vhd
+      - rtl/src/sha_comp.vhd
+      - rtl/src/wots_functions.vhd
+      - rtl/src/wots_comp.vhd
+      
+      # 2. MÓDULOS DESPUÉS
+      - rtl/src/sha256.vhd
+      - rtl/src/sha256_m.vhd
+      - rtl/src/thash_h.vhd
+      - rtl/src/wots_core.vhd
+      - rtl/src/wots_chain.vhd
+      - rtl/src/wots.vhd
+      - rtl/src/l_tree.vhd
+      - rtl/src/hash_message.vhd
+      - rtl/src/compute_root.vhd
+      - rtl/src/absorb_message.vhd
+      - rtl/src/xmss_verify.vhd
+      - rtl/src/xheep_wrapper.vhd
+      - rtl/src/XMSS.vhd
+    file_type: vhdlSource-2008
+
+  # Si tienes o haces un wrapper en SystemVerilog, se declara en otro fileset
+  # files_sv:
+  #   files:
+  #     - rtl/src/xmss_obi_wrapper.sv
+  #   file_type: systemVerilogSource
+
+parameters:
+  GENERATED: { datatype: bool, default: false }
+
+targets:
+  default:
+    filesets:
+      - files_rtl
+      # - files_sv
