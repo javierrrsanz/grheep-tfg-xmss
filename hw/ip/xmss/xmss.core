@@ -6,27 +6,28 @@ filesets:
   files_rtl:
     files:
       # 1. PAQUETES PRIMERO (Ajusta el orden exacto según tus dependencias)
-      - rtl/src/xmss_main_typedef.vhd
       - rtl/src/params.vhd
+      - rtl/src/xmss_main_typedef.vhd
       - rtl/src/sha_functions.vhd
       - rtl/src/sha_comp.vhd
-      - rtl/src/wots_functions.vhd
       - rtl/src/wots_comp.vhd
+      - rtl/src/wots_functions.vhd
       
       # 2. MÓDULOS DESPUÉS
-      - rtl/src/sha256.vhd
       - rtl/src/sha256_m.vhd
+      - rtl/src/sha256.vhd
       - rtl/src/thash_h.vhd
-      - rtl/src/wots_core.vhd
       - rtl/src/wots_chain.vhd
+      - rtl/src/wots_core.vhd
       - rtl/src/wots.vhd
       - rtl/src/l_tree.vhd
       - rtl/src/hash_message.vhd
       - rtl/src/compute_root.vhd
       - rtl/src/absorb_message.vhd
+      - rtl/src/hash_core_collection.vhd
       - rtl/src/xmss_verify.vhd
-      - rtl/src/xheep_wrapper.vhd
       - rtl/src/XMSS.vhd
+      - rtl/src/xheep_wrapper.vhd
     file_type: vhdlSource-2008
 
   # Si tienes o haces un wrapper en SystemVerilog, se declara en otro fileset

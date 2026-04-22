@@ -175,6 +175,34 @@ module gr_heep_peripherals (
         //       .gr_heep_peripheral_vec_int[0]
         //   );
         // % endif
+        
+        // ---------------------------------------------------------
+        // XMSS Post-Quantum Accelerator (VHDL Wrapper)
+        // ---------------------------------------------------------
+        % if (a_slave['name'].lower() == "xmss"):
+            xheep_wrapper xmss_inst (
+                .clk         ( clk_i ),
+                .rst_ni      ( rst_ni ),
+                
+                // Mapeo del struct reg_req_t (Bus de Periféricos) a tus puertos VHDL
+                .reg_req     ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].valid ),
+                .reg_we      ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].write ),
+                .reg_addr    ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].addr ),
+                .reg_wdata   ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].wdata ),
+                
+                // Mapeo de tus puertos VHDL al struct reg_rsp_t
+                .reg_gnt     ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].ready ),
+                .reg_rdata   ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].rdata ),
+                
+                // En el protocolo reg_interface, los datos se asumen válidos 
+                // cuando 'ready' está a 1 en una lectura. Dejamos rvalid al aire.
+                .reg_rvalid  () 
+            );
+            
+            // X-HEEP requiere que le digamos si ha habido un error en el bus
+            assign gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].error = 1'b0;
+            
+        % endif
     % endfor
   % endif
 
