@@ -27,8 +27,11 @@ package params is
    constant BRAM_XMSS_SIG       : integer := BRAM_XMSS_SIG_AUTH + tree_height;
    constant BRAM_MESSAGE        : integer := BRAM_XMSS_SIG + 4;
    
-   constant BRAM_ADDR_SIZE : integer := 8;
-   constant MAX_MLEN : integer := 2048;
+    constant BRAM_ADDR_SIZE : integer := 8;
+    constant MAX_MLEN : integer := 2048;
+    -- hash_message antepone 4 palabras de n bytes (R, root, idx, prefix)
+    -- por lo que el motor hash puede recibir hasta MAX_MLEN + 4*8*n bits.
+    constant MAX_HASH_LEN : integer := MAX_MLEN + 4*8*n;
    
    -- NUEVO: Estados seguros para mitigación FI (Multibit)
    constant STATUS_VALID   : std_logic_vector(15 downto 0) := x"3C5A";

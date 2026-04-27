@@ -156,8 +156,8 @@ def gr_heep_config():
         #         "length": 0x00001000,
         #     },
         "xmss": {
-            "offset": 0x000A0000,
-            "length": 0x00010000,
+            "offset": 0x00000000,
+            "length": 0x00004000,
         },
     }
 

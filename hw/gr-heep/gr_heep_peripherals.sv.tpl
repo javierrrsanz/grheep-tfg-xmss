@@ -189,6 +189,7 @@ module gr_heep_peripherals (
                 .reg_we      ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].write ),
                 .reg_addr    ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].addr ),
                 .reg_wdata   ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].wdata ),
+                .reg_wstrb   ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].wstrb ),
                 
                 // Mapeo de tus puertos VHDL al struct reg_rsp_t
                 .reg_gnt     ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].ready ),

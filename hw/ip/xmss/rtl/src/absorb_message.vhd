@@ -29,8 +29,8 @@ architecture Behavioral of absorb_message is
     type reg_type is record 
         state : state_type;
         block512 : unsigned(511 downto 0);
-        total_len : integer range 0 to MAX_MLEN;
-        remaining_len : integer range -512 to MAX_MLEN;
+        total_len : integer range 0 to MAX_HASH_LEN;
+        remaining_len : integer range -512 to MAX_HASH_LEN;
         len_appended : std_logic;
         shift_ctr : integer range 0 to 31;
     end record;

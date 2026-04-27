@@ -17,7 +17,7 @@ package xmss_main_typedef is
     type hash_subsystem_input_type is record
 	    id : hash_id;
         enable: std_logic;
-        len   : integer range 0 to MAX_MLEN;
+      len   : integer range 0 to MAX_HASH_LEN;
         input : std_logic_vector((n*8)-1 downto 0);
     end record;
 
@@ -33,7 +33,7 @@ package xmss_main_typedef is
     type absorb_message_input_type is record
 	    halt  : std_logic;
         enable: std_logic;
-        len   : integer range 0 to MAX_MLEN;
+      len   : integer range 0 to MAX_HASH_LEN;
         input : std_logic_vector((n*8)-1 downto 0);
     end record;
 

@@ -15,6 +15,7 @@ entity xheep_wrapper is
         reg_we      : in  std_logic;
         reg_addr    : in  std_logic_vector(31 downto 0); -- Direcciones a nivel de byte
         reg_wdata   : in  std_logic_vector(31 downto 0);
+        reg_wstrb   : in  std_logic_vector(3 downto 0);
         reg_gnt     : out std_logic;
         reg_rvalid  : out std_logic;
         reg_rdata   : out std_logic_vector(31 downto 0)
@@ -69,6 +70,9 @@ architecture Behavioral of xheep_wrapper is
     signal ip_din_b              : std_logic_vector(255 downto 0);
     signal b_dout_b              : std_logic_vector(255 downto 0);
 
+    -- Lectura combinacional para cumplir reg_intf
+    signal reg_rdata_c           : std_logic_vector(31 downto 0);
+    signal full_word_write       : std_logic;
 begin
 
     -- Solución al Reset Invertido
@@ -79,6 +83,7 @@ begin
     -- ==============================================================
     wdata_swapped <= reg_wdata(7 downto 0) & reg_wdata(15 downto 8) & 
                      reg_wdata(23 downto 16) & reg_wdata(31 downto 24);
+    full_word_write <= '1' when reg_wstrb = "1111" else '0';
 
     -- ==============================================================
     -- B. BANCO DE REGISTROS Y EMPAQUETADOR DE MEMORIA
@@ -90,51 +95,22 @@ begin
         if rst_ni = '0' then
             reg_enable  <= '0';
             reg_mlen    <= (others => '0');
-            reg_rvalid  <= '0';
-            reg_rdata   <= (others => '0');
             buffer_256  <= (others => '0');
         elsif rising_edge(clk) then
-            
-            -- Lógica de Lectura para el Bus (1 ciclo de latencia)
-            reg_rvalid <= reg_req and (not reg_we);
-            
-            if reg_req = '1' and reg_we = '0' then
-                if reg_addr(13) = '0' then 
-                    -- Leyendo Espacio de Registros
-                    case reg_addr(7 downto 0) is
-                        when x"00" => reg_rdata <= (31 downto 1 => '0') & reg_enable;
-                        when x"04" => reg_rdata <= (31 downto 17 => '0') & xmss_done & xmss_valid;
-                        when x"08" => reg_rdata <= reg_mlen;
-                        when others => reg_rdata <= (others => '0');
-                    end case;
-                else
-                    -- Leyendo Espacio de BRAM (Write-Only por seguridad, devuelve 0)
-                    reg_rdata <= (others => '0');
-                end if;
-            end if;
-
-            -- Lógica de Escritura para el Bus
-            if reg_req = '1' and reg_we = '1' then
-                
-                -- Si reg_addr(13) = 0 -> ACCESO A REGISTROS (Offset 0x000 a 0xFFF)
+            -- Solo escritura secuencial
+            if reg_req = '1' and reg_we = '1' and full_word_write = '1' then
                 if reg_addr(13) = '0' then
                     case reg_addr(7 downto 0) is
-                        when x"00" => 
+                        when x"00" =>
                             reg_enable <= reg_wdata(0);
-                        
-                        when x"08" => 
-                            -- (Saturación a 2048)
+                        when x"08" =>
                             if unsigned(reg_wdata) > 2048 then
                                 reg_mlen <= std_logic_vector(to_unsigned(2048, 32));
                             else
                                 reg_mlen <= reg_wdata;
                             end if;
-                            
                         when others => null;
                     end case;
-                
-                -- Si reg_addr(13) = 1 -> ACCESO A MEMORIA BRAM (Offset 0x1000 a 0x2FFF)
-                -- (Solo permitimos escribir si el acelerador está apagado)
                 elsif reg_enable = '0' then
                     case word_index is
                         when 0 => buffer_256(255 downto 224) <= wdata_swapped;
@@ -144,18 +120,35 @@ begin
                         when 4 => buffer_256(127 downto 96)  <= wdata_swapped;
                         when 5 => buffer_256(95 downto 64)   <= wdata_swapped;
                         when 6 => buffer_256(63 downto 32)   <= wdata_swapped;
-                        when 7 => null; -- Se gestiona de forma combinacional abajo
+                        when 7 => null;
                     end case;
                 end if;
             end if;
         end if;
     end process;
 
-    -- Concesión inmediata del Bus OBI
-    reg_gnt <= reg_req;
+    -- Lectura combinacional (rdata válido cuando ready=1)
+    process(reg_req, reg_we, reg_addr, reg_enable, xmss_done, xmss_valid, reg_mlen)
+    begin
+        reg_rdata_c <= (others => '0');
+        if reg_req = '1' and reg_we = '0' then
+            if reg_addr(13) = '0' then
+                case reg_addr(7 downto 0) is
+                    when x"00" => reg_rdata_c <= (31 downto 1 => '0') & reg_enable;
+                    when x"04" => reg_rdata_c <= (31 downto 17 => '0') & xmss_done & xmss_valid;
+                    when x"08" => reg_rdata_c <= reg_mlen;
+                    when others => reg_rdata_c <= (others => '0');
+                end case;
+            end if;
+        end if;
+    end process;
+
+    reg_rdata  <= reg_rdata_c;
+    reg_rvalid <= reg_req and (not reg_we);
+    reg_gnt    <= reg_req;
 
     -- Disparador del Empaquetador (Escribe al recibir la 8º palabra - offset 0x1C)
-    packer_en   <= '1' when (reg_req = '1' and reg_we = '1' and reg_addr(13) = '1' and reg_enable = '0' and word_index = 7) else '0';
+    packer_en   <= '1' when (reg_req = '1' and reg_we = '1' and full_word_write = '1' and reg_addr(13) = '1' and reg_enable = '0' and word_index = 7) else '0';
     packer_wen  <= packer_en;
     packer_addr <= reg_addr(4 + BRAM_ADDR_SIZE downto 5); -- Ejemplo: bits 12 downto 5 para tamaño de 8 bits
     packer_din  <= buffer_256(255 downto 32) & wdata_swapped;
