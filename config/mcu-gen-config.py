@@ -100,7 +100,7 @@ def config():
     base_peripheral_domain.add_peripheral(Power_manager(0x00040000))
     base_peripheral_domain.add_peripheral(RV_timer_ao(0x00050000))
     base_peripheral_domain.add_peripheral(Fast_intr_ctrl(0x00060000))
-    base_peripheral_domain.add_peripheral(Ext_peripheral(0x00070000))
+    base_peripheral_domain.add_peripheral(Ext_peripheral(0x00070000)) #Dirección de memoria base
     base_peripheral_domain.add_peripheral(Pad_control(0x00080000))
     base_peripheral_domain.add_peripheral(GPIO_ao(0x00090000))
 
