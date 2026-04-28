@@ -17,6 +17,7 @@ architecture Behavioral of xheep_wrapper_tb is
     signal reg_we      : std_logic := '0';
     signal reg_addr    : std_logic_vector(31 downto 0) := (others => '0');
     signal reg_wdata   : std_logic_vector(31 downto 0) := (others => '0');
+    signal reg_wstrb   : std_logic_vector(3 downto 0) := (others => '0');
     signal reg_gnt     : std_logic;
     signal reg_rvalid  : std_logic;
     signal reg_rdata   : std_logic_vector(31 downto 0);
@@ -129,7 +130,7 @@ architecture Behavioral of xheep_wrapper_tb is
 
 begin
 
-    -- Instancia del Wrapper Modificado
+    -- Instancia del Wrapper
     uut : entity work.xheep_wrapper
         port map (
             clk         => clk,
@@ -138,6 +139,7 @@ begin
             reg_we      => reg_we,
             reg_addr    => reg_addr,
             reg_wdata   => reg_wdata,
+            reg_wstrb   => reg_wstrb,
             reg_gnt     => reg_gnt,
             reg_rvalid  => reg_rvalid,
             reg_rdata   => reg_rdata
@@ -168,30 +170,34 @@ begin
         begin
             wait until rising_edge(clk);
             reg_req   <= '1'; reg_we <= '1';
+            reg_wstrb <= "1111"; 
             reg_addr  <= addr_in; reg_wdata <= data_in;
+            
             wait until rising_edge(clk);
             reg_req   <= '0'; reg_we <= '0';
+            reg_wstrb <= "0000"; 
         end procedure;
 
         procedure bus_read(addr_in : std_logic_vector(31 downto 0)) is
         begin
             wait until rising_edge(clk);
             reg_req  <= '1'; reg_we <= '0'; reg_addr <= addr_in;
+            
+            -- Puesto que el wrapper tiene lectura combinacional con latencia 0,
+            -- reg_rdata será válido en este mismo instante (antes del siguiente flanco).
+            -- Por lo tanto, capturamos en el siguiente flanco y bajamos la petición.
             wait until rising_edge(clk);
-            reg_req  <= '0';
-            wait until rising_edge(clk) and reg_rvalid = '1'; 
             read_val := reg_rdata;
+            reg_req  <= '0'; 
         end procedure;
 
         -- Macro para inyectar una fila entera de 256 bits simulando un memcpy
         procedure load_bram_line(index : integer) is
         begin
             data_256 := kat_memory(index);
-            -- La base de la BRAM ahora es 0x2000. Offset = index * 32 bytes
             addr := x"00002000" + to_unsigned(index * 32, 32); 
             
             for j in 0 to 7 loop
-                -- Extraemos la palabra de 32 bits, la volteamos (Little-Endian) y la mandamos
                 word_32 := byte_swap(data_256(255 - j*32 downto 224 - j*32));
                 bus_write(std_logic_vector(addr + to_unsigned(j * 4, 32)), word_32);
             end loop;
@@ -248,12 +254,15 @@ begin
         if read_val(15 downto 0) = x"3C5A" then
             report "=== [PASS] FIRMA VALIDA Y VERIFICADA EN EL WRAPPER  ===" severity note;
         else
-            report "=== [FAIL] FIRMA RECHAZADA. CODIGO: " & integer'image(to_integer(unsigned(read_val(15 downto 0)))) severity error;
+            -- NOTA: to_hstring requiere VHDL-2008. Si da error al compilar, cámbialo por un report con integer'image como tenías antes.
+            report "=== [FAIL] FIRMA RECHAZADA. CODIGO: " & to_hstring(read_val(15 downto 0)) severity error;
         end if;
         report "=======================================================" severity note;
 
         -- 9. Auto-clear y fin
         bus_write(x"00000000", x"00000000");
+        
+        report "### SIMULACION FINALIZADA ###" severity note;
         wait;
     end process;
 

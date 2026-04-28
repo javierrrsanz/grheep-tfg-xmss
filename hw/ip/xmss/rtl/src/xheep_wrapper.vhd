@@ -1,3 +1,4 @@
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -9,7 +10,7 @@ entity xheep_wrapper is
         rst_ni      : in  std_logic; -- Reset asíncrono activo bajo (Estándar X-HEEP)
 
         -- ==========================================================
-        -- INTERFAZ BUS ESCLAVO (X-HEEP REGISTER INTERFACE )
+        -- INTERFAZ BUS ESCLAVO (X-HEEP OBI / APB Compatible)
         -- ==========================================================
         reg_req     : in  std_logic;
         reg_we      : in  std_logic;
@@ -18,10 +19,7 @@ entity xheep_wrapper is
         reg_wstrb   : in  std_logic_vector(3 downto 0);
         reg_gnt     : out std_logic;
         reg_rvalid  : out std_logic;
-        reg_rdata   : out std_logic_vector(31 downto 0);
-        -- ==========================================================
-        -- INTERFAZ BUS ESCLAVO (X-HEEP OBI MASTER (XMMSS -> External Memory) )
-        -- ==========================================================
+        reg_rdata   : out std_logic_vector(31 downto 0)
     );
 end xheep_wrapper;
 
