@@ -177,33 +177,47 @@ module gr_heep_peripherals (
         // % endif
         
         // ---------------------------------------------------------
-        // XMSS Post-Quantum Accelerator (VHDL Wrapper)
+        // XMSS Post-Quantum Accelerator (VHDL Wrapper On-Demand)
         // ---------------------------------------------------------
         % if (a_slave['name'].lower() == "xmss"):
             xheep_wrapper xmss_inst (
                 .clk         ( clk_i ),
                 .rst_ni      ( rst_ni ),
                 
-                // Mapeo del struct reg_req_t (Bus de Periféricos) a tus puertos VHDL
+                // Mapeo del struct reg_req_t (Bus de Periféricos - Esclavo)
                 .reg_req     ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].valid ),
                 .reg_we      ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].write ),
                 .reg_addr    ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].addr ),
                 .reg_wdata   ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].wdata ),
                 .reg_wstrb   ( gr_heep_peripheral_req[gr_heep_pkg::XmssPeriphIdx].wstrb ),
                 
-                // Mapeo de tus puertos VHDL al struct reg_rsp_t
                 .reg_gnt     ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].ready ),
                 .reg_rdata   ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].rdata ),
+                .reg_rvalid  ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].valid ), -- AÑADIDO (Requerido por X-HEEP)
                 
-                // En el protocolo reg_interface, los datos se asumen válidos 
-                // cuando 'ready' está a 1 en una lectura. Dejamos rvalid al aire.
-                .reg_rvalid  () 
+                // =========================================================
+                // Mapeo del struct obi_req_t / obi_resp_t (DMA Maestro On-Demand)
+                // =========================================================
+                .obi_req_o    ( gr_heep_master_req_o[0].req ),
+                .obi_we_o     ( gr_heep_master_req_o[0].we ),
+                .obi_be_o     ( gr_heep_master_req_o[0].be ),
+                .obi_addr_o   ( gr_heep_master_req_o[0].addr ),
+                .obi_wdata_o  ( gr_heep_master_req_o[0].wdata ),
+                
+                .obi_gnt_i    ( gr_heep_master_resp_i[0].gnt ),
+                .obi_rvalid_i ( gr_heep_master_resp_i[0].rvalid ),
+                .obi_rdata_i  ( gr_heep_master_resp_i[0].rdata ),
+
+                // =========================================================
+                // Conexión de la Interrupción (IRQ)
+                // =========================================================
+                .irq_o        ( gr_heep_peripheral_vec_int[0] )
             );
-            
+
             // X-HEEP requiere que le digamos si ha habido un error en el bus
             assign gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].error = 1'b0;
-            
         % endif
+        
     % endfor
   % endif
 

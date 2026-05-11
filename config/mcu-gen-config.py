@@ -127,7 +127,7 @@ def config():
 
 def gr_heep_config():
 
-    ext_xbar_nmasters = 0
+    ext_xbar_nmasters = 1
 
     # External slaves memory map
     ext_xbar_slaves = {
@@ -163,7 +163,7 @@ def gr_heep_config():
 
     ao_spc_num = 1
 
-    external_interrupts = 0
+    external_interrupts = 1
 
     # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
     # Do not modify below this line unless you know what you are doing
