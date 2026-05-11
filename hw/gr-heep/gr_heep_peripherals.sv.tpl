@@ -193,7 +193,7 @@ module gr_heep_peripherals (
                 
                 .reg_gnt     ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].ready ),
                 .reg_rdata   ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].rdata ),
-                .reg_rvalid  ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].valid ), -- AÑADIDO (Requerido por X-HEEP)
+                .reg_rvalid  ( gr_heep_peripheral_rsp[gr_heep_pkg::XmssPeriphIdx].valid ), // ADDED (Requerido por X-HEEP)
                 
                 // =========================================================
                 // Mapeo del struct obi_req_t / obi_resp_t (DMA Maestro On-Demand)
