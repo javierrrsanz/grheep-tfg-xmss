@@ -15,14 +15,15 @@ package xmss_main_typedef is
 	end record;
 
     type hash_subsystem_input_type is record
-	    id : hash_id;
-        enable: std_logic;
-      len   : integer range 0 to MAX_HASH_LEN;
-        input : std_logic_vector((n*8)-1 downto 0);
+       id : hash_id;
+       enable: std_logic;
+       halt : std_logic;  -- <--- AÑADIDO: Permite a los modulos pausar el motor
+       len   : integer range 0 to MAX_HASH_LEN;
+       input : std_logic_vector((n*8)-1 downto 0);
     end record;
 
-    constant zero_hash_input : hash_subsystem_input_type := (zero_hash_id, '0', 0,(others => '0'));
-    constant dont_care_hash_input : hash_subsystem_input_type := (dont_care_hash_id, '-', 0,(others => '-'));
+    constant zero_hash_input : hash_subsystem_input_type := (zero_hash_id, '0', '0', 0,(others => '0'));
+    constant dont_care_hash_input : hash_subsystem_input_type := (dont_care_hash_id, '-', '-', 0,(others => '-'));
 
     type absorb_message_output_type is record
         done : std_logic;
@@ -33,7 +34,7 @@ package xmss_main_typedef is
     type absorb_message_input_type is record
 	    halt  : std_logic;
         enable: std_logic;
-      len   : integer range 0 to MAX_HASH_LEN;
+        len   : integer range 0 to MAX_HASH_LEN;
         input : std_logic_vector((n*8)-1 downto 0);
     end record;
 
@@ -51,7 +52,7 @@ package xmss_main_typedef is
     type wots_input_type is record
        module_input : wots_input_type_small;
        pub_seed: std_logic_vector((n*8)-1 downto 0);
-       bram_b : bram_interface_out;
+       sig_mem : mem_read_rsp;
        hash : hash_subsystem_output_type;
     end record;
 
@@ -61,6 +62,7 @@ package xmss_main_typedef is
 
     type wots_output_type is record
        module_output : wots_output_type_small;
+       sig_mem : mem_read_req;
        hash : hash_subsystem_input_type;
        bram : dual_port_bram_in;
     end record;
@@ -130,7 +132,7 @@ package xmss_main_typedef is
 	type hash_message_input_type is record
 	   module_input : hash_message_input_type_small;
        hash : hash_subsystem_output_type;
-       bram : bram_interface_out;
+       mem : mem_read_rsp;
     end record;
 	
 	type hash_message_output_type_small is record
@@ -141,7 +143,7 @@ package xmss_main_typedef is
     type hash_message_output_type is record
        module_output : hash_message_output_type_small;
        hash : hash_subsystem_input_type;
-       bram : bram_interface_in;
+       mem : mem_read_req;
 	end record;
 	
     --- COMPUTE ROOT
@@ -149,14 +151,14 @@ package xmss_main_typedef is
        enable  : std_logic;
        leaf : std_logic_vector(n*8-1 downto 0);
        leaf_idx: integer range 0 to 2**tree_height-1;
-       bram : bram_interface_out;
+         mem : mem_read_rsp;
        thash: xmss_thash_h_output_type_small;
     end record;
 
     type xmss_compute_root_output_type is record
        done     : std_logic;
        thash : xmss_thash_h_input_type_small;
-       bram : bram_interface_in;
+       mem : mem_read_req;
        root : std_logic_vector(8*n-1 downto 0);
 	end record;
 
@@ -168,7 +170,7 @@ package xmss_main_typedef is
        l_tree : xmss_l_tree_output_type_small;
        thash : xmss_thash_h_output_type_small;
        hash_message : hash_message_output_type_small;
-       bram : dual_port_bram_out;
+         mem : mem_read_rsp;
     end record;
 
     type xmss_verify_output_type is record
@@ -180,7 +182,8 @@ package xmss_main_typedef is
        l_tree : xmss_l_tree_input_type_small;
        thash : xmss_thash_h_input_type_small;
        hash_message : hash_message_input_type_small;
-       bram : dual_port_bram_in;
+       mem : mem_read_req;
 	end record;
 	
 end package;
+

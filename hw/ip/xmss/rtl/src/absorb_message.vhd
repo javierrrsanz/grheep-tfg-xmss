@@ -48,6 +48,7 @@ architecture Behavioral of absorb_message is
     
     -- NUEVO: Señal para congelar el SHA256 mientras traemos datos
     signal fetch_halt   : std_logic;
+    signal combined_halt: std_logic;
 
 begin
 
@@ -59,6 +60,9 @@ begin
         r.state = S_WAIT_FETCH_LOW_2 or 
         (r.state = S_LOAD_HIGH and r.remaining_len > 256)
     ) else '0';
+    
+    -- Sacamos la expresión lógica fuera del port map
+    combined_halt <= d.halt or fetch_halt;
 
     sha256 : entity work.sha256
     port map(
@@ -66,7 +70,7 @@ begin
         reset     => reset,
         d.enable  => next_enable,
         -- NUEVO: Inyectamos el halt interno junto con el externo
-        d.halt    => d.halt or fetch_halt,
+        d.halt    => combined_halt,
         d.last    => next_last,
         d.message => next_message,
         q         => modules.sha

@@ -48,6 +48,7 @@ begin
         -- Default assignments
         q.hash.len <= 768;
         q.hash.enable <= '0';
+        q.hash.halt <= '0';
         
         q.hash.id.ctr <= to_unsigned(0, ID_CTR_LEN);
         q.hash.id.block_ctr <= (others => '0');

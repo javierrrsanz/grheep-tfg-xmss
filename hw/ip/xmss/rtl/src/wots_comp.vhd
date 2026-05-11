@@ -40,18 +40,19 @@ package wots_comp is
 	
 	-- WOTS core module
 	type wots_core_input_type is record
-	   enable  : std_logic;
-	   pub_seed: std_logic_vector((n*8)-1 downto 0);
-	   message     : std_logic_vector((n*8)-1 downto 0);
-	   address_4 : std_logic_vector(31 downto 0);
-	   bram : bram_interface_out;
-	   hash : hash_subsystem_output_type;
+	   enable   : std_logic;
+	   pub_seed : std_logic_vector((n*8)-1 downto 0);
+	   message  : std_logic_vector((n*8)-1 downto 0);
+	   address_4: std_logic_vector(31 downto 0);
+	   sig_mem  : mem_read_rsp; -- NUEVO: Respuesta del bus OBI
+	   hash     : hash_subsystem_output_type;
 	end record;
 	
 	type wots_core_output_type is record
-	   done      : std_logic;
-	   bram : bram_interface_in;
-	   hash : hash_subsystem_input_type;
+	   done     : std_logic;
+	   bram     : bram_interface_in; -- Mantenemos para ESCRITURA de la PK
+       sig_mem  : mem_read_req;      -- NUEVO: Peticion al bus OBI
+	   hash     : hash_subsystem_input_type;
 	end record;
 	
 	component wots_core

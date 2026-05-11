@@ -20,22 +20,24 @@ architecture Behavioral of wots_chain is
         chain_index : unsigned(WOTS_LEN_LOG-1 downto 0);
         X : std_logic_vector(n*8-1 downto 0); 
         key : std_logic_vector(n*8-1 downto 0);
-        halt_self : std_logic; -- RESTAURADO EL SEGURO
+        halt_self : std_logic;
         key_and_mask : unsigned(1 downto 0);
-        busy : std_logic; 
+        busy : std_logic;
     end record;
     
     signal hash_sel : unsigned(2 downto 0);
     signal has_mnext, has_done, is_addressed : std_logic;
     signal r, r_in : reg_type;
-
 begin
-    q.busy <= r.busy;
+    
+    -- FIX ARQUITECTÓNICO CRÍTICO: Mantiene el BUSY arriba hasta que se procesa el continue
+    q.busy <= r.busy or r.halt_self; 
+    
     q.ctr <= r.chain_index;
     q.hash.len <= 768;
     q.hash.id.ctr <= to_unsigned(ID, ID_CTR_LEN);
     q.result <= r.X;
-
+    
     is_addressed <= '1' when to_unsigned(ID, ID_CTR_LEN) = d.hash.id.ctr else '0';
     has_mnext <= '1' when d.hash.mnext = '1' and is_addressed = '1' else '0';
     has_done <= '1' when d.hash.done = '1' and (to_unsigned(ID, ID_CTR_LEN) = d.hash.done_id.ctr) else '0';
@@ -45,6 +47,7 @@ begin
     begin
        v := r;
        q.hash.enable <= '0';
+       q.hash.halt <= '0';
        q.hash.id.block_ctr <= (others => '0');
        q.done <= '0';
        hash_sel <= d.hash.id.block_ctr;
@@ -59,7 +62,7 @@ begin
                    v.busy := '1';
                    v.state := S_LOOP;
                end if;
-               
+
            when S_LOOP =>
               if r.cnt = wots_w - 1 then
                     q.done <= '1';
@@ -110,7 +113,7 @@ begin
                     hash_sel <= "111";
                     v.state := S_CORE_HASH;
                 end if;
-                
+
            when S_CORE_HASH =>
               if has_done = '1' then
                     v.cnt := r.cnt + 1;
@@ -118,7 +121,7 @@ begin
                     v.state := S_LOOP;
               end if;
        end case;
-       
+
        if r.halt_self = '1' then
            q.hash.enable <= '0';
        end if;
@@ -152,7 +155,7 @@ begin
            if r.halt_self = '0' then
               r <= r_in;
            elsif d.continue = '1' then
-              r.halt_self <= '0'; -- DESCONGELA LA CADENA
+              r.halt_self <= '0';
            end if;
         end if;
        end if;

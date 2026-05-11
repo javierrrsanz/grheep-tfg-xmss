@@ -20,7 +20,6 @@ architecture Behavioral of WOTS is
     signal core_in : wots_core_input_type;
     signal core_out : wots_core_output_type;
 begin
-    
     wots_core_inst : entity work.wots_core
     port map(
        clk          => clk,
@@ -35,12 +34,13 @@ begin
     q.bram.a.addr <= (others => '0');
     q.bram.a.din <= (others => '0');
     
+    q.sig_mem <= core_out.sig_mem; -- Propaga la peticion al TOP
     q.hash <= core_out.hash;
     m_out.done <= core_out.done;
 
     core_in.enable <= m_in.enable;
     core_in.pub_seed <= d.pub_seed;
-    core_in.bram <= d.bram_b;
+    core_in.sig_mem <= d.sig_mem;  -- Propaga la respuesta desde el TOP
     core_in.message <= m_in.message;
     core_in.address_4 <= m_in.address_4;
     core_in.hash <= d.hash;
