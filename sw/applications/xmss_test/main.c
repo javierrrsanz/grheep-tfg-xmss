@@ -6,6 +6,7 @@
 #include "hart.h"            // <--- NUEVO: Para wait_for_interrupt() y CSRs
 #include "csr.h"             // <--- NUEVO: Para macros de registros RISC-V
 #include "fast_intr_ctrl.h"  // <--- NUEVO: Controlador de interrupciones rápidas
+#include "power_manager.h"   // <--- NUEVO: Para funciones de gestión de energía
 
 // ============================================================================
 // OFFSETS DEL WRAPPER OBI (BAJO DEMANDA)
@@ -278,7 +279,7 @@ void fic_irq_ext_peripheral(void) {
 
 int main(void)
 {
-    printf("\n[XMSS_HW] Iniciando integracion XMSS en gr-heep (DMA On-Demand)...\n");
+    printf("\n[XMSS_HW] Iniciando verificacion XMSS en gr-heep (DMA On-Demand)...\n");
 
     // 1. ENSAMBLAJE DE LA FIRMA (Scatter-Gather en software)
     // Replicamos la estructura que el decodificador VHDL espera [cite: 1361]
@@ -305,26 +306,43 @@ int main(void)
     xmss_write32(XMSS_PK_ADDR_OFFSET,  pk_ptr);
     xmss_write32(XMSS_MLEN_OFFSET,     mlen_bits);
 
-    // 4. CONFIGURACIÓN DE LA INTERRUPCIÓN RÁPIDA (FIC)
+// 4. CONFIGURACIÓN DE LA INTERRUPCIÓN RÁPIDA (FIC)
     printf("[XMSS_HW] Habilitando Fast Interrupts...\n");
     enable_fast_interrupt(kExt_peri_fic_e, true); // Enciende la línea física
     CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);           // Habilita interrupciones globales
     CSR_SET_BITS(CSR_REG_MIE, (1u << 31));        // Habilita interrupciones rápidas (Bit 31)
 
+    // ========================================================================
+    // --- NUEVO: CONFIGURACIÓN DEL POWER MANAGER ---
+    // ========================================================================
+    printf("[XMSS_HW] Configurando Power Manager para proteger el DMA...\n");
+    power_manager_t pm = { .base_addr = POWER_MANAGER_START_ADDRESS };
+    power_manager_counters_t pm_counters;
+    
+    // Inicializamos los contadores de retardo (valores estándar seguros)
+    power_gate_counters_init(&pm_counters, 10, 10, 10, 10, 10, 10, 10, 10);
+
+    // 1. Blindamos el dominio de los periféricos (nuestro XMSS) para que NO se apague
+    power_gate_periph(&pm, kOn_e, &pm_counters);
+
+    // 2. Blindamos los 5 bancos de RAM para que la memoria siga viva durante el WFI
+    for (int i = 0; i < 5; i++) {
+        power_gate_ram_block(&pm, i, kOn_e, &pm_counters);
+    }
+    // ========================================================================
 
     // 5. LANZAMIENTO
     printf("[XMSS_HW] Acelerador XMSS: START\n");
     xmss_write32(XMSS_CTRL_OFFSET, 1u);
 
-    // 6. ESPERAR A LA INTERRUPCIÓN (Sin apagar la RAM)
-    printf("[XMSS_HW] Esperando respuesta del acelerador (NOP)...\n");
+    // 6. ESPERAR A LA INTERRUPCIÓN (Ahora sí, con WFI real)
+    printf("[XMSS_HW] CPU en WFI... esperando respuesta.\n");
     while (!xmss_finished) {
-        // En lugar de WFI (que apaga la RAM), hacemos que la CPU espere 
-        // sin hacer nada, manteniendo los relojes encendidos.
-        __asm__ volatile ("nop"); 
+        wait_for_interrupt(); // ¡La CPU duerme, pero el bus y la RAM siguen vivos!
     }
-    printf("[XMSS_HW] ¡Interrupcion recibida! CPU sale del bucle.\n");
+    printf("[XMSS_HW] Interrupcion recibida. CPU sale de WFI.\n");
     
+   
     // 7. VERIFICACIÓN DEL RESULTADO
     uint32_t status = xmss_read32(XMSS_STATUS_OFFSET);
     uint16_t valid_code = (uint16_t)(status & 0xFFFFu);
