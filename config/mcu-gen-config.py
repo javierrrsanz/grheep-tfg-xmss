@@ -64,11 +64,11 @@ def config():
     # - 2 x 32kiB firmware and data
     # - 2 x 16kiB interleaved banks
     memory_ss = MemorySS()
-    memory_ss.add_ram_banks([32] * 6)
-    memory_ss.add_ram_banks_il(4, 16, "data_interleaved")
+    memory_ss.add_ram_banks([32] * 5)
+    # memory_ss.add_ram_banks_il(4, 16, "data_interleaved")
     # Linker script sections
-    memory_ss.add_linker_section(LinkerSection.by_size("code", 0, 0x00018000))
-    memory_ss.add_linker_section(LinkerSection("data", 0x00018000, None))
+    memory_ss.add_linker_section(LinkerSection.by_size("code", 0, 0x00008000))
+    memory_ss.add_linker_section(LinkerSection("data", 0x00008000, None))
     system.set_memory_ss(memory_ss)
 
     # Peripheral domains initialization

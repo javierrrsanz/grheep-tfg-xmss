@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 #include "gr_heep.h"
+#include <stdbool.h>         // <--- NUEVO: Para usar la variable bool
+#include "hart.h"            // <--- NUEVO: Para wait_for_interrupt() y CSRs
+#include "csr.h"             // <--- NUEVO: Para macros de registros RISC-V
+#include "fast_intr_ctrl.h"  // <--- NUEVO: Controlador de interrupciones rápidas
 
 // ============================================================================
 // OFFSETS DEL WRAPPER OBI (BAJO DEMANDA)
@@ -258,6 +262,20 @@ static inline uint32_t xmss_read32(uint32_t offset) {
 uint8_t dma_sig_buffer[149 * 32] __attribute__((aligned(4)));
 static uint8_t dma_msg_buffer[32] __attribute__((aligned(4)));
 
+// ============================================================================
+// RUTINA DE INTERRUPCIÓN (ISR - FAST INTERRUPT CONTROLLER)
+// ============================================================================
+volatile bool xmss_finished = false;
+
+void fic_irq_ext_peripheral(void) {
+    // 1. Levantamos la bandera para salir del WFI en el main
+    xmss_finished = true;
+    
+    // 2. ACKNOWLEDGE: Le decimos al HW que baje la señal irq_o
+    // Escribimos 0x02 (Bit 1 a '1'). Como el bit 0 (START) tiene autoclear, no lo pisamos.
+    xmss_write32(XMSS_CTRL_OFFSET, 0x02);
+}
+
 int main(void)
 {
     printf("\n[XMSS_HW] Iniciando integracion XMSS en gr-heep (DMA On-Demand)...\n");
@@ -287,26 +305,28 @@ int main(void)
     xmss_write32(XMSS_PK_ADDR_OFFSET,  pk_ptr);
     xmss_write32(XMSS_MLEN_OFFSET,     mlen_bits);
 
-    // 4. LANZAMIENTO
+    // 4. CONFIGURACIÓN DE LA INTERRUPCIÓN RÁPIDA (FIC)
+    printf("[XMSS_HW] Habilitando Fast Interrupts...\n");
+    enable_fast_interrupt(kExt_peri_fic_e, true); // Enciende la línea física
+    CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);           // Habilita interrupciones globales
+    CSR_SET_BITS(CSR_REG_MIE, (1u << 31));        // Habilita interrupciones rápidas (Bit 31)
+
+
+    // 5. LANZAMIENTO
     printf("[XMSS_HW] Acelerador XMSS: START\n");
     xmss_write32(XMSS_CTRL_OFFSET, 1u);
 
-    // 5. POLLING (Espera activa)
-    uint32_t status;
-    uint32_t count = 0;
-    do {
-        status = xmss_read32(XMSS_STATUS_OFFSET);
-        count++;
-        if (count > 10000000) { // Timeout de seguridad
-            printf("[FAIL] El hardware no responde.\n");
-            return -1;
-        }
-    } while (((status >> 16) & 0x1u) == 0); // Esperamos al bit 'done' 
-
-    // Limpieza de control
-    xmss_write32(XMSS_CTRL_OFFSET, 0u);
-
-    // 6. VERIFICACIÓN DEL RESULTADO
+    // 6. ESPERAR A LA INTERRUPCIÓN (Sin apagar la RAM)
+    printf("[XMSS_HW] Esperando respuesta del acelerador (NOP)...\n");
+    while (!xmss_finished) {
+        // En lugar de WFI (que apaga la RAM), hacemos que la CPU espere 
+        // sin hacer nada, manteniendo los relojes encendidos.
+        __asm__ volatile ("nop"); 
+    }
+    printf("[XMSS_HW] ¡Interrupcion recibida! CPU sale del bucle.\n");
+    
+    // 7. VERIFICACIÓN DEL RESULTADO
+    uint32_t status = xmss_read32(XMSS_STATUS_OFFSET);
     uint16_t valid_code = (uint16_t)(status & 0xFFFFu);
     printf("[XMSS_HW] Operacion terminada. Codigo: 0x%04x\n", valid_code);
 

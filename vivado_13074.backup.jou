@@ -3,8 +3,8 @@
 # SW Build 6140274 on Wed May 21 22:58:25 MDT 2025
 # IP Build 6138677 on Thu May 22 03:10:11 MDT 2025
 # SharedData Build 6139179 on Tue May 20 17:58:58 MDT 2025
-# Start of session at: Thu Jun  4 21:12:58 2026
-# Process ID         : 35545
+# Start of session at: Wed Apr 22 13:19:20 2026
+# Process ID         : 13074
 # Current directory  : /home/javier/gr-heep
 # Command line       : vivado
 # Log file           : /home/javier/gr-heep/vivado.log
@@ -13,15 +13,12 @@
 # Platform           : Ubuntu
 # Operating System   : Ubuntu 22.04.5 LTS
 # Processor Detail   : 11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz
-# CPU Frequency      : 2803.213 MHz
+# CPU Frequency      : 2803.212 MHz
 # CPU Physical cores : 4
 # CPU Logical cores  : 8
 # Host memory        : 12543 MB
 # Swap memory        : 8589 MB
 # Total Virtual      : 21133 MB
-# Available Virtual  : 18374 MB
+# Available Virtual  : 19154 MB
 #-----------------------------------------------------------
 start_gui
-open_project /home/javier/gr-heep/build/x-heep_systems_gr-heep_0/nexys-a7-100t-vivado/x-heep_systems_gr-heep_0.xpr
-open_run impl_1
-report_timing_summary -delay_type min_max -report_unconstrained -check_timing_verbose -max_paths 10 -input_pins -routable_nets -name timing_1

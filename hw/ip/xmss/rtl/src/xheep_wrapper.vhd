@@ -93,6 +93,11 @@ begin
                 reg_ctrl(0) <= '0';
             end if;
 
+            -- NUEVO: Auto-apaga el botón de ACK
+            if reg_ctrl(1) = '1' then
+                reg_ctrl(1) <= '0'; 
+            end if;
+
             if reg_req = '1' and reg_we = '1' and full_word_write = '1' then
                 case reg_addr(7 downto 0) is
                     when x"00" => reg_ctrl     <= reg_wdata;
@@ -139,6 +144,11 @@ begin
                 xmss_enable <= '1';
                 latched_done <= '0';
                 latched_valid <= (others => '0');
+            end if;
+
+            -- NUEVO: La CPU apaga la interrupción (Bit 1)
+            if reg_ctrl(1) = '1' then
+                latched_done <= '0';
             end if;
 
             if xmss_done = '1' then
