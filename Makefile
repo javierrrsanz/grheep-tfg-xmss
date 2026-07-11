@@ -59,6 +59,13 @@ TEST_FLAGS=
 # Software
 PROJECT := hello_world
 
+RAM_FIRMWARE_IMAGE := ../../../sw/build/main.hex
+FLASH_FIRMWARE_IMAGE := $(RAM_FIRMWARE_IMAGE)
+
+ifeq ($(PROJECT),bootloader)
+FLASH_FIRMWARE_IMAGE := ../../../sw/applications/bootloader/spiflash.hex
+endif
+
 # Vendor
 MODULE_NAME ?= x-heep
 
@@ -134,14 +141,14 @@ questasim-build-opt: questasim-build
 .PHONY: questasim-run-app
 questasim-run-app:
 	$(MAKE) app
-	$(MAKE) -C $(QUESTASIM_DIR) run RUN_OPT=1 PLUSARGS="c firmware=../../../sw/build/main.hex"
+	$(MAKE) -C $(QUESTASIM_DIR) run RUN_OPT=1 PLUSARGS="c firmware=$(RAM_FIRMWARE_IMAGE) flash_firmware=$(FLASH_FIRMWARE_IMAGE)"
 	@echo -e "\033[1m### DONE! Simulation finished. UART output:\033[0m"
 	@cat $(QUESTASIM_DIR)/uart0.log
 
 .PHONY: questasim-run-app-gui
 questasim-run-app-gui:
 	$(MAKE) app
-	$(MAKE) -C $(QUESTASIM_DIR) run-gui RUN_OPT=1 PLUSARGS="c firmware=../../../sw/build/main.hex"
+	$(MAKE) -C $(QUESTASIM_DIR) run-gui RUN_OPT=1 PLUSARGS="c firmware=$(RAM_FIRMWARE_IMAGE) flash_firmware=$(FLASH_FIRMWARE_IMAGE)"
 	@echo -e "\033[1m### DONE! Simulation finished. UART output:\033[0m"
 	@cat $(QUESTASIM_DIR)/uart0.log
 

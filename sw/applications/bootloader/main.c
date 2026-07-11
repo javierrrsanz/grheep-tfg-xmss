@@ -4,12 +4,26 @@
 #include <stdbool.h>
 
 #include "gr_heep.h"
+#include "x-heep.h"
 #include "hart.h"
 #include "csr.h"
 #include "fast_intr_ctrl.h"
 #include "power_manager.h"
 #include "spi_sdk.h"
 #include "bitfield.h"
+#include "w25q128jw.h"
+
+/* Activar PRINTF en simulacion y desactivarlo en placas por rendimiento */
+#define PRINTF_IN_FPGA  0
+#define PRINTF_IN_SIM   1
+
+#if TARGET_SIM && PRINTF_IN_SIM
+    #define PRINTF(fmt, ...)    printf(fmt, ## __VA_ARGS__)
+#elif PRINTF_IN_FPGA && !TARGET_SIM
+    #define PRINTF(fmt, ...)    printf(fmt, ## __VA_ARGS__)
+#else
+    #define PRINTF(...)
+#endif
 
 // ============================================================================
 // DEFINICIONES DE SEGURIDAD, MEMORIA Y SPI
@@ -27,8 +41,6 @@
 #define FLASH_MAX_FREQ       (133*1000*1000) 
 #define FC_RD                0x03     // Read Data Command
 
-// --- NUEVO: Bit de interrupción para la memoria Flash ---
-#define FIC_FLASH_MEIE       21       
 
 volatile bool xmss_finished = false;
 
@@ -51,34 +63,19 @@ void fic_irq_ext_peripheral(void) {
 }
 
 void secure_halt(const char* reason) {
-    printf("\n[SECURE BOOT] !!! ALERTA DE SEGURIDAD !!!\n");
-    printf("[SECURE BOOT] Motivo: %s\n", reason);
-    printf("[SECURE BOOT] Sistema bloqueado permanentemente.\n");
+    PRINTF("\n[SECURE BOOT] !!! ALERTA DE SEGURIDAD !!!\n");
+    PRINTF("[SECURE BOOT] Motivo: %s\n", reason);
+    PRINTF("[SECURE BOOT] Sistema bloqueado permanentemente.\n");
     while(1) { __asm__ volatile ("wfi"); }
-}
-
-// ============================================================================
-// RUTINA DE LECTURA SPI (Basada en el driver oficial)
-// ============================================================================
-bool flash_read(spi_t* spi, uint32_t addr, uint32_t* dest_buff, uint32_t len) {
-    spi_segment_t segments[2] = { SPI_SEG_TX(4), SPI_SEG_RX(len) };
-    uint32_t read_byte_cmd = ((bitfield_byteswap32(addr & 0x00ffffff)) | FC_RD);
-
-    spi_codes_e error = spi_execute(spi, segments, 2, &read_byte_cmd, dest_buff);
-    if (error != SPI_CODE_OK) {
-        printf("[SPI] Error Code: %i\n", error);
-        return false;
-    }
-    return true;
 }
 
 // ============================================================================
 // ZERO-STAGE BOOTLOADER
 // ============================================================================
 int main(void) {
-    printf("\n====================================\n");
-    printf("--- X-HEEP XMSS SECURE BOOT ROM  ---\n");
-    printf("====================================\n");
+    PRINTF("\n====================================\n");
+    PRINTF("--- X-HEEP XMSS SECURE BOOT ROM  ---\n");
+    PRINTF("====================================\n");
 
     // 1. CONFIGURACIÓN DEL SISTEMA (Energía y RAM)
     power_manager_t pm = { .base_addr = POWER_MANAGER_START_ADDRESS };
@@ -93,36 +90,37 @@ int main(void) {
     enable_fast_interrupt(kExt_peri_fic_e, true);
     CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
     
-    // --- CORRECCIÓN CLAVE ---
-    // Habilitamos tanto el XMSS (bit 31) como el SPI Flash (bit 21)
-    uint32_t intr_mask = (1u << 31) | (1u << FIC_FLASH_MEIE);
+    // Habilitamos solo la interrupción del XMSS (bit 31)
+    uint32_t intr_mask = (1u << 31);
     CSR_SET_BITS(CSR_REG_MIE, intr_mask);
 
     // ========================================================================
     // 3. LECTURA FÍSICA DESDE LA SPI FLASH A LA SRAM
     // ========================================================================
-    printf("[SECURE BOOT] Inicializando bus SPI Flash...\n");
+    PRINTF("[SECURE BOOT] Inicializando bus SPI Flash...\n");
     
-    spi_slave_t slave = SPI_SLAVE(0, FLASH_MAX_FREQ);
-    spi_t spi = spi_init(SPI_IDX_FLASH, slave);
-    if (!spi.init) secure_halt("Fallo critico al inicializar SPI");
+    // We use the w25q128jw BSP driver instead of the interrupt-based spi_execute,
+    // to avoid simulation hangs due to FIC interrupt issues or timeouts taking too long.
+    if (w25q128jw_init(spi_flash) != FLASH_OK) {
+        secure_halt("Fallo critico al inicializar SPI Flash");
+    }
 
-    printf("[SECURE BOOT] Leyendo %d bytes desde la Flash externa...\n", FIRMWARE_TOTAL_SIZE);
+    PRINTF("[SECURE BOOT] Leyendo %d bytes desde la Flash externa...\n", FIRMWARE_TOTAL_SIZE);
     
-    if (!flash_read(&spi, 0x000000, (uint32_t*)SRAM_APP_ADDR, FIRMWARE_TOTAL_SIZE)) {
+    if (w25q128jw_read_quad(0x000000, (uint32_t*)SRAM_APP_ADDR, FIRMWARE_TOTAL_SIZE) != FLASH_OK) {
         secure_halt("Error de hardware al leer la memoria Flash.");
     }
     
-    printf("[SECURE BOOT] Descarga completada.\n");
+    PRINTF("[SECURE BOOT] Descarga completada.\n");
 
 
     // --- BLOQUE DE DEPURACIÓN ---
-    printf("\n[DEBUG] Volcado de los primeros 16 bytes (Clave Publica):\n");
+    PRINTF("\n[DEBUG] Volcado de los primeros 16 bytes (Clave Publica):\n");
     uint8_t *mem_ptr = (uint8_t *)SRAM_APP_ADDR;
     for(int i = 0; i < 16; i++) {
-        printf("%02X ", mem_ptr[i]);
+        PRINTF("%02X ", mem_ptr[i]);
     }
-    printf("\n\n");
+    PRINTF("\n\n");
 
     // ========================================================================
     // 4. PARSEO Y CONFIGURACIÓN DEL ACELERADOR XMSS
@@ -133,14 +131,14 @@ int main(void) {
     uint32_t sig_ptr = SRAM_APP_ADDR + 68;              // 4768 bytes
     uint32_t app_ptr = SRAM_APP_ADDR + 68 + 4768;       // payload_size bytes
 
-    printf("[SECURE BOOT] Configurando Acelerador Hardware...\n");
+    PRINTF("[SECURE BOOT] Configurando Acelerador Hardware...\n");
     xmss_write32(XMSS_PK_ADDR_OFFSET,  pk_ptr);
     xmss_write32(XMSS_SIG_ADDR_OFFSET, sig_ptr);
     xmss_write32(XMSS_MSG_ADDR_OFFSET, app_ptr);
     xmss_write32(XMSS_MLEN_OFFSET,     payload_size * 8);
 
     // 5. LANZAR VERIFICACIÓN
-    printf("[SECURE BOOT] Ejecutando verificacion criptografica...\n");
+    PRINTF("[SECURE BOOT] Ejecutando verificacion criptografica...\n");
     xmss_finished = false;
     xmss_write32(XMSS_CTRL_OFFSET, 1u);
 
@@ -156,20 +154,31 @@ int main(void) {
         secure_halt("Firma XMSS Invalida o Binario Corrupto.");
     }
 
-    printf("[SECURE BOOT] Exito: Firma validada correctamente.\n");
+    PRINTF("[SECURE BOOT] Exito: Firma validada correctamente.\n");
 
-    // 7. LIMPIEZA Y HANDOFF
-    printf("[SECURE BOOT] Preparando salto de Programa...\n");
+    // Limpieza de interrupciones de forma inmediata para evitar tormentas de interrupciones
     CSR_CLEAR_BITS(CSR_REG_MSTATUS, 0x8);
     CSR_CLEAR_BITS(CSR_REG_MIE, intr_mask);
     enable_fast_interrupt(kExt_peri_fic_e, false);
-    
-    spi_deinit(&spi);
 
-    printf("[SECURE BOOT] === INICIANDO APLICACION DE USUARIO ===\n\n");
+    // 7. REUBICACIÓN DEL PAYLOAD Y LIMPIEZA
+    PRINTF("[SECURE BOOT] Reubicando la aplicacion a su direccion base (0x%08X)...\n", SRAM_APP_ADDR);
+    
+    // Copiamos el payload desde app_ptr hacia SRAM_APP_ADDR para que coincida con su link.ld
+    memcpy((void*)SRAM_APP_ADDR, (void*)app_ptr, payload_size);
+    
+    PRINTF("[SECURE BOOT] Reubicacion completada exitosamente.\n");
+    PRINTF("[SECURE BOOT] Preparando salto de Programa...\n");
+
+    
+    // Sincronizar memoria de instrucciones por si hay cache
+    __asm__ volatile ("fence.i");
+
+    PRINTF("[SECURE BOOT] === INICIANDO APLICACION DE USUARIO ===\n\n");
     
     typedef void (*app_entry_t)(void);
-    app_entry_t app_entry = (app_entry_t)(app_ptr + 0x180); 
+    // El punto de entrada será ahora 0x018000 + 0x180
+    app_entry_t app_entry = (app_entry_t)(SRAM_APP_ADDR + 0x180); 
     app_entry(); 
 
     while(1) { __asm__ volatile("wfi"); }
