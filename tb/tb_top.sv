@@ -186,7 +186,7 @@ module tb_top #(
     if (exit_valid) begin
       if (exit_value == 0) $display("EXIT SUCCESS");
       else $display("EXIT FAILURE: %d", exit_value);
-      $finish;
+      $finish; 
     end
   end
 
