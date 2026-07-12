@@ -8,7 +8,7 @@
 #include "hart.h"
 #include "csr.h"
 #include "fast_intr_ctrl.h"
-#include "power_manager.h"
+
 #include "spi_sdk.h"
 #include "bitfield.h"
 #include "w25q128jw.h"
@@ -77,16 +77,7 @@ int main(void) {
     PRINTF("--- X-HEEP XMSS SECURE BOOT ROM  ---\n");
     PRINTF("====================================\n");
 
-    // 1. CONFIGURACIÓN DEL SISTEMA (Energía y RAM)
-    power_manager_t pm = { .base_addr = POWER_MANAGER_START_ADDRESS };
-    power_manager_counters_t pm_counters;
-    power_gate_counters_init(&pm_counters, 10, 10, 10, 10, 10, 10, 10, 10);
-    power_gate_periph(&pm, kOn_e, &pm_counters);
-    for (int i = 0; i < 5; i++) {
-        power_gate_ram_block(&pm, i, kOn_e, &pm_counters);
-    }
-
-    // 2. CONFIGURACIÓN DE INTERRUPCIONES
+    // 1. CONFIGURACIÓN DE INTERRUPCIONES
     enable_fast_interrupt(kExt_peri_fic_e, true);
     CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
     
@@ -143,7 +134,16 @@ int main(void) {
     xmss_write32(XMSS_CTRL_OFFSET, 1u);
 
     while (!xmss_finished) {
-        __asm__ volatile ("nop"); 
+        // Deshabilitar interrupciones globalmente (solo a nivel de CPU)
+        CSR_CLEAR_BITS(CSR_REG_MSTATUS, 0x8);
+        if (!xmss_finished) {
+            // Dormir CPU. El HW la despertará si la linea de interrupción sube, 
+            // a pesar de que MSTATUS.MIE=0.
+            wait_for_interrupt();
+        }
+        // Reactivar interrupciones. Si nos ha despertado el XMSS,
+        // saltará instantáneamente a la ISR (fic_irq_ext_peripheral) en este punto.
+        CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
     }
 
     // 6. TOMA DE DECISIÓN CRÍTICA

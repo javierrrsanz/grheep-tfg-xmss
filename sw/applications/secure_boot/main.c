@@ -6,7 +6,7 @@
 #include "hart.h"
 #include "csr.h"
 #include "fast_intr_ctrl.h"
-#include "power_manager.h"
+
 #include "firmware_image.h" // ¡Aquí vienen los arrays generados por el script C!
 
 // ============================================================================
@@ -60,15 +60,7 @@ int main(void) {
     printf("====================================\n");
 
     // 1. CONFIGURACIÓN DEL SISTEMA Y ENERGÍA
-    printf("[SECURE BOOT] Encendiendo bancos de RAM y perifericos...\n");
-    power_manager_t pm = { .base_addr = POWER_MANAGER_START_ADDRESS };
-    power_manager_counters_t pm_counters;
-    power_gate_counters_init(&pm_counters, 10, 10, 10, 10, 10, 10, 10, 10);
-    power_gate_periph(&pm, kOn_e, &pm_counters);
-    
-    for (int i = 0; i < 5; i++) {
-        power_gate_ram_block(&pm, i, kOn_e, &pm_counters);
-    }
+
 
     enable_fast_interrupt(kExt_peri_fic_e, true);
     CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
@@ -90,9 +82,13 @@ int main(void) {
     xmss_finished = false;
     xmss_write32(XMSS_CTRL_OFFSET, 1u);
 
-    // --- NUEVO: POLLING SEGURO ---
+    // --- NUEVO: WFI SEGURO ---
     while (!xmss_finished) {
-        __asm__ volatile ("nop"); // Mantiene al Power Manager despierto
+        CSR_CLEAR_BITS(CSR_REG_MSTATUS, 0x8);
+        if (!xmss_finished) {
+            wait_for_interrupt();
+        }
+        CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
     }
 
     // 5. TOMA DE DECISIÓN CRÍTICA
