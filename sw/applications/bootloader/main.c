@@ -12,6 +12,7 @@
 #include "spi_sdk.h"
 #include "bitfield.h"
 #include "w25q128jw.h"
+#include "sha256.h"
 
 /* Activar PRINTF en simulacion y desactivarlo en placas por rendimiento */
 #define PRINTF_IN_FPGA  0
@@ -41,6 +42,11 @@
 #define FLASH_MAX_FREQ       (133*1000*1000) 
 #define FC_RD                0x03     // Read Data Command
 
+// Hash simulado de la Clave Publica (RoTPK guardada en eFuses OTP)
+const uint8_t EFUSE_EXPECTED_PK_HASH[32] = {
+    0x96, 0x6e, 0xcc, 0x66, 0x75, 0xbd, 0x35, 0x06, 0x8d, 0xf2, 0x55, 0xb9, 0x96, 0x60, 0x75, 0xe5, 
+    0x04, 0xb6, 0x6b, 0xd1, 0xe9, 0x06, 0x39, 0x1c, 0xd1, 0x48, 0x6a, 0x47, 0xd9, 0xb2, 0xfb, 0x34
+};
 
 volatile bool xmss_finished = false;
 
@@ -127,6 +133,26 @@ int main(void) {
     xmss_write32(XMSS_SIG_ADDR_OFFSET, sig_ptr);
     xmss_write32(XMSS_MSG_ADDR_OFFSET, app_ptr);
     xmss_write32(XMSS_MLEN_OFFSET,     payload_size * 8);
+
+    // ========================================================================
+    // VALIDACIÓN DE LA CLAVE PÚBLICA (ROOT OF TRUST) - PASO 3.2
+    // ========================================================================
+    PRINTF("[SECURE BOOT] Validando Clave Publica (RoTPK) contra eFuses por Software...\n");
+    
+    uint8_t calculated_pk_hash[32];
+    SHA256_CTX ctx;
+    
+    // Hash de la Clave Pública cargada desde Flash (68 bytes)
+    sha256_init(&ctx);
+    sha256_update(&ctx, (const BYTE*)pk_ptr, 68);
+    sha256_final(&ctx, calculated_pk_hash);
+    
+    // Comparar con el hash inmutable (eFuses/OTP)
+    if (memcmp(calculated_pk_hash, EFUSE_EXPECTED_PK_HASH, 32) != 0) {
+        secure_halt("RoTPK Invalida: La clave publica de la Flash no coincide con el Root of Trust (OTP).");
+    }
+    
+    PRINTF("[SECURE BOOT] Clave Publica AUTENTICADA.\n");
 
     // 5. LANZAR VERIFICACIÓN
     PRINTF("[SECURE BOOT] Ejecutando verificacion criptografica...\n");
