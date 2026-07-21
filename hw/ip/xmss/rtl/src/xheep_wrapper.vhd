@@ -2,6 +2,8 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 use work.params.ALL;
+use work.xmss_main_typedef.ALL;
+use work.sha_comp.ALL;
 
 entity xheep_wrapper is
     port (
@@ -54,6 +56,10 @@ architecture Behavioral of xheep_wrapper is
     signal xmss_done     : std_logic;
     signal xmss_valid    : std_logic_vector(15 downto 0);
     signal xmss_rst_high : std_logic;
+    signal xmss_mem_req  : std_logic;
+    signal xmss_mem_addr : std_logic_vector(31 downto 0);
+    signal xmss_mem_gnt  : std_logic;
+    signal xmss_mem_rvalid : std_logic;
 
     -- Señales del DMA interno bajo demanda
     signal mem_req      : std_logic;
@@ -73,10 +79,34 @@ architecture Behavioral of xheep_wrapper is
     -- Volteo de Endianness
     signal rdata_swapped : std_logic_vector(31 downto 0);
 
+    -- SEÑALES MODO HASH ONLY
+    signal hash_enable : std_logic := '0';
+    signal hash_done   : std_logic := '0';
+    signal hash_mem_req : std_logic := '0';
+    signal hash_mem_addr : std_logic_vector(31 downto 0);
+    signal hash_mem_gnt : std_logic;
+    signal hash_mem_rvalid : std_logic;
+    signal hash_result : std_logic_vector(255 downto 0) := (others => '0');
+    
+    signal absorb_in   : absorb_message_input_type;
+    signal absorb_out  : absorb_message_output_type;
+
+    type hash_state_type is (H_IDLE, H_REQ, H_WAIT_DMA, H_WAIT_SHA);
+    signal hash_state : hash_state_type := H_IDLE;
+    signal hash_addr_offset : unsigned(31 downto 0) := (others => '0');
+
 begin
 
     xmss_rst_high <= not rst_ni;
     full_word_write <= '1' when reg_wstrb = "1111" else '0';
+
+    -- MUX DMA
+    mem_req <= xmss_mem_req when hash_enable = '0' else hash_mem_req;
+    mem_addr <= xmss_mem_addr when hash_enable = '0' else hash_mem_addr;
+    xmss_mem_gnt <= mem_gnt when hash_enable = '0' else '0';
+    xmss_mem_rvalid <= mem_rvalid when hash_enable = '0' else '0';
+    hash_mem_gnt <= mem_gnt when hash_enable = '1' else '0';
+    hash_mem_rvalid <= mem_rvalid when hash_enable = '1' else '0';
 
     -- 1. ESCLAVO DE CONFIGURACIÓN (RISC-V escribe aquí)
     process(clk, rst_ni)
@@ -96,6 +126,11 @@ begin
             -- NUEVO: Auto-apaga el botón de ACK
             if reg_ctrl(1) = '1' then
                 reg_ctrl(1) <= '0'; 
+            end if;
+
+            -- Autoclear del bit de START HASH
+            if reg_ctrl(2) = '1' then
+                reg_ctrl(2) <= '0';
             end if;
 
             if reg_req = '1' and reg_we = '1' and full_word_write = '1' then
@@ -122,6 +157,15 @@ begin
                 when x"10" => reg_rdata_c <= reg_msg_addr;
                 when x"14" => reg_rdata_c <= reg_mlen;
                 when x"18" => reg_rdata_c <= reg_pk_addr;
+                -- Registros Hash
+                when x"20" => reg_rdata_c <= hash_result(255 downto 224);
+                when x"24" => reg_rdata_c <= hash_result(223 downto 192);
+                when x"28" => reg_rdata_c <= hash_result(191 downto 160);
+                when x"2C" => reg_rdata_c <= hash_result(159 downto 128);
+                when x"30" => reg_rdata_c <= hash_result(127 downto 96);
+                when x"34" => reg_rdata_c <= hash_result(95 downto 64);
+                when x"38" => reg_rdata_c <= hash_result(63 downto 32);
+                when x"3C" => reg_rdata_c <= hash_result(31 downto 0);
                 when others => reg_rdata_c <= (others => '0');
             end case;
         end if;
@@ -139,11 +183,17 @@ begin
             xmss_enable <= '0';
             latched_done <= '0';
             latched_valid <= (others => '0');
+            hash_enable <= '0';
         elsif rising_edge(clk) then
             if reg_ctrl(0) = '1' then
                 xmss_enable <= '1';
                 latched_done <= '0';
                 latched_valid <= (others => '0');
+            end if;
+
+            if reg_ctrl(2) = '1' then
+                hash_enable <= '1';
+                latched_done <= '0';
             end if;
 
             -- NUEVO: La CPU apaga la interrupción (Bit 1)
@@ -156,10 +206,78 @@ begin
                 latched_done <= '1';
                 latched_valid <= xmss_valid;
             end if;
+            
+            if hash_done = '1' then
+                hash_enable <= '0';
+                latched_done <= '1';
+            end if;
         end if;
     end process;
 
     irq_o <= latched_done;
+
+    -- 2.5 HASH ONLY FSM
+    process(clk, rst_ni)
+    begin
+        if rst_ni = '0' then
+            hash_state <= H_IDLE;
+            hash_mem_req <= '0';
+            hash_addr_offset <= (others => '0');
+            absorb_in.enable <= '0';
+            absorb_in.halt <= '0';
+            absorb_in.len <= 0;
+            absorb_in.input <= (others => '0');
+            hash_done <= '0';
+            hash_result <= (others => '0');
+        elsif rising_edge(clk) then
+            hash_done <= '0';
+            absorb_in.enable <= '0';
+
+            case hash_state is
+                when H_IDLE =>
+                    if hash_enable = '1' then
+                        hash_state <= H_REQ;
+                        hash_addr_offset <= (others => '0');
+                        absorb_in.len <= to_integer(unsigned(reg_mlen));
+                        hash_mem_req <= '1';
+                        hash_mem_addr <= std_logic_vector(unsigned(reg_pk_addr));
+                        absorb_in.halt <= '1'; -- Congelar SHA mientras traemos primeros 32B
+                    end if;
+                when H_REQ =>
+                    if hash_mem_gnt = '1' then
+                        hash_mem_req <= '0';
+                        hash_state <= H_WAIT_DMA;
+                    end if;
+                when H_WAIT_DMA =>
+                    if hash_mem_rvalid = '1' then
+                        absorb_in.input <= mem_rdata;
+                        absorb_in.enable <= '1';
+                        absorb_in.halt <= '0'; -- Liberar SHA ahora que tenemos datos
+                        hash_state <= H_WAIT_SHA;
+                    end if;
+                when H_WAIT_SHA =>
+                    if absorb_out.mnext = '1' then
+                        hash_addr_offset <= hash_addr_offset + 32;
+                        hash_mem_req <= '1';
+                        hash_mem_addr <= std_logic_vector(unsigned(reg_pk_addr) + hash_addr_offset + 32);
+                        absorb_in.halt <= '1'; -- Congelar SHA mientras pedimos siguientes 32B
+                        hash_state <= H_REQ;
+                    elsif absorb_out.done = '1' then
+                        hash_result <= absorb_out.o;
+                        hash_done <= '1';
+                        hash_state <= H_IDLE;
+                    end if;
+            end case;
+        end if;
+    end process;
+    
+    inst_hash_only : entity work.absorb_message
+        port map(
+            clk   => clk,
+            reset => xmss_rst_high,
+            d     => absorb_in,
+            q     => absorb_out
+        );
 
 
     -- 3. DMA MAESTRO "ON DEMAND" (Traductor 32b -> 256b)
@@ -250,10 +368,10 @@ begin
             pk_base     => reg_pk_addr, -- Usamos el nuevo registro configurado en C
             done        => xmss_done,
             valid       => xmss_valid,
-            mem_req     => mem_req,
-            mem_addr    => mem_addr,
-            mem_gnt     => mem_gnt,
-            mem_rvalid  => mem_rvalid,
+            mem_req     => xmss_mem_req,
+            mem_addr    => xmss_mem_addr,
+            mem_gnt     => xmss_mem_gnt,
+            mem_rvalid  => xmss_mem_rvalid,
             mem_rdata   => mem_rdata
         );
 

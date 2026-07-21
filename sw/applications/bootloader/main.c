@@ -12,7 +12,7 @@
 #include "spi_sdk.h"
 #include "bitfield.h"
 #include "w25q128jw.h"
-#include "sha256.h"
+
 
 /* Activar PRINTF en simulacion y desactivarlo en placas por rendimiento */
 #define PRINTF_IN_FPGA  0
@@ -120,41 +120,55 @@ int main(void) {
     PRINTF("\n\n");
 
     // ========================================================================
-    // 4. PARSEO Y CONFIGURACIÓN DEL ACELERADOR XMSS
+    // 4. VALIDACIÓN DE LA CLAVE PÚBLICA (ROOT OF TRUST) POR HARDWARE
     // ========================================================================
-    uint32_t payload_size = FIRMWARE_TOTAL_SIZE - 68 - 4768;
-
+    PRINTF("[SECURE BOOT] Validando Clave Publica (RoTPK) contra eFuses por Hardware...\n");
+    
     uint32_t pk_ptr  = SRAM_APP_ADDR;                   // 68 bytes
-    uint32_t sig_ptr = SRAM_APP_ADDR + 68;              // 4768 bytes
-    uint32_t app_ptr = SRAM_APP_ADDR + 68 + 4768;       // payload_size bytes
-
-    PRINTF("[SECURE BOOT] Configurando Acelerador Hardware...\n");
-    xmss_write32(XMSS_PK_ADDR_OFFSET,  pk_ptr);
-    xmss_write32(XMSS_SIG_ADDR_OFFSET, sig_ptr);
-    xmss_write32(XMSS_MSG_ADDR_OFFSET, app_ptr);
-    xmss_write32(XMSS_MLEN_OFFSET,     payload_size * 8);
-
-    // ========================================================================
-    // VALIDACIÓN DE LA CLAVE PÚBLICA (ROOT OF TRUST) - PASO 3.2
-    // ========================================================================
-    PRINTF("[SECURE BOOT] Validando Clave Publica (RoTPK) contra eFuses por Software...\n");
+    xmss_write32(XMSS_PK_ADDR_OFFSET, pk_ptr);
+    xmss_write32(XMSS_MLEN_OFFSET, 68 * 8); // 544 bits
+    
+    xmss_finished = false;
+    xmss_write32(XMSS_CTRL_OFFSET, 0x04); // Start HASH_ONLY
+    
+    while (!xmss_finished) {
+        CSR_CLEAR_BITS(CSR_REG_MSTATUS, 0x8);
+        if (!xmss_finished) {
+            wait_for_interrupt();
+        }
+        CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
+    }
     
     uint8_t calculated_pk_hash[32];
-    SHA256_CTX ctx;
+    for (int i = 0; i < 8; i++) {
+        uint32_t word = xmss_read32(0x20 + (i * 4));
+        calculated_pk_hash[i*4 + 0] = (word >> 24) & 0xFF;
+        calculated_pk_hash[i*4 + 1] = (word >> 16) & 0xFF;
+        calculated_pk_hash[i*4 + 2] = (word >> 8) & 0xFF;
+        calculated_pk_hash[i*4 + 3] = word & 0xFF;
+    }
     
-    // Hash de la Clave Pública cargada desde Flash (68 bytes)
-    sha256_init(&ctx);
-    sha256_update(&ctx, (const BYTE*)pk_ptr, 68);
-    sha256_final(&ctx, calculated_pk_hash);
-    
-    // Comparar con el hash inmutable (eFuses/OTP)
     if (memcmp(calculated_pk_hash, EFUSE_EXPECTED_PK_HASH, 32) != 0) {
         secure_halt("RoTPK Invalida: La clave publica de la Flash no coincide con el Root of Trust (OTP).");
     }
     
-    PRINTF("[SECURE BOOT] Clave Publica AUTENTICADA.\n");
+    PRINTF("[SECURE BOOT] Clave Publica AUTENTICADA por HW.\n");
 
-    // 5. LANZAR VERIFICACIÓN
+    // ========================================================================
+    // 5. PARSEO Y CONFIGURACIÓN DEL ACELERADOR XMSS PARA VERIFICACIÓN
+    // ========================================================================
+    uint32_t payload_size = FIRMWARE_TOTAL_SIZE - 68 - 4768;
+
+    uint32_t sig_ptr = SRAM_APP_ADDR + 68;              // 4768 bytes
+    uint32_t app_ptr = SRAM_APP_ADDR + 68 + 4768;       // payload_size bytes
+
+    PRINTF("[SECURE BOOT] Configurando Acelerador Hardware para verificacion...\n");
+    // XMSS_PK_ADDR_OFFSET ya está configurado (pk_ptr)
+    xmss_write32(XMSS_SIG_ADDR_OFFSET, sig_ptr);
+    xmss_write32(XMSS_MSG_ADDR_OFFSET, app_ptr);
+    xmss_write32(XMSS_MLEN_OFFSET,     payload_size * 8);
+
+    // 6. LANZAR VERIFICACIÓN
     PRINTF("[SECURE BOOT] Ejecutando verificacion criptografica...\n");
     xmss_finished = false;
     xmss_write32(XMSS_CTRL_OFFSET, 1u);
