@@ -38,7 +38,7 @@
 #define XMSS_PK_ADDR_OFFSET  0x0018u
 
 #define SRAM_APP_ADDR        0x018000 // Donde copiaremos y ejecutaremos el firmware
-#define FIRMWARE_TOTAL_SIZE  38588    // El tamaño del .bin empaquetado
+// El tamaño ahora se lee dinámicamente de la Flash.
 #define FLASH_MAX_FREQ       (133*1000*1000) 
 #define FC_RD                0x03     // Read Data Command
 
@@ -99,9 +99,18 @@ int main(void) {
         secure_halt("Fallo critico al inicializar SPI Flash");
     }
 
-    PRINTF("[SECURE BOOT] Leyendo %d bytes desde la Flash externa...\n", FIRMWARE_TOTAL_SIZE);
+    uint32_t firmware_total_size = 0;
     
-    if (w25q128jw_read_quad(0x000000, (uint32_t*)SRAM_APP_ADDR, FIRMWARE_TOTAL_SIZE) != FLASH_OK) {
+    // Leemos los primeros 4 bytes de la cabecera (offset 0x010000)
+    if (w25q128jw_read_quad(0x010000, &firmware_total_size, 4) != FLASH_OK) {
+        secure_halt("Error de hardware al leer la cabecera de la Flash.");
+    }
+
+    PRINTF("[SECURE BOOT] Cabecera leida. Tamaño del firmware: %d bytes.\n", firmware_total_size);
+    PRINTF("[SECURE BOOT] Leyendo firmware desde la Flash externa (Offset 0x010004)...\n");
+    
+    // Leemos el firmware real (saltándonos los 4 bytes de cabecera)
+    if (w25q128jw_read_quad(0x010004, (uint32_t*)SRAM_APP_ADDR, firmware_total_size) != FLASH_OK) {
         secure_halt("Error de hardware al leer la memoria Flash.");
     }
     
@@ -168,7 +177,7 @@ int main(void) {
     // ========================================================================
     // 5. PARSEO Y CONFIGURACIÓN DEL ACELERADOR XMSS PARA VERIFICACIÓN
     // ========================================================================
-    uint32_t payload_size = FIRMWARE_TOTAL_SIZE - 68 - 4768;
+    uint32_t payload_size = firmware_total_size - 68 - 4768;
 
     uint32_t sig_ptr = SRAM_APP_ADDR + 68;              // 4768 bytes
     uint32_t app_ptr = SRAM_APP_ADDR + 68 + 4768;       // payload_size bytes

@@ -151,11 +151,11 @@ _spi_fifo_read_8_words:
        .align 4
        .global expected_rotpk_hash
 expected_rotpk_hash:
-       .word 0x966ECC66
-       .word 0x75BD3506
-       .word 0x8DF255B9
-       .word 0x966075E5
-       .word 0x04B66BD1
-       .word 0xE906391C
-       .word 0xD1486A47
-       .word 0xD9B2FB34
+       .word 0x331D2AC4
+       .word 0x26192280
+       .word 0xC2EF0371
+       .word 0xC3055AD5
+       .word 0xC44C3A65
+       .word 0x6825DB91
+       .word 0x0A9456AC
+       .word 0xBE9558F7
