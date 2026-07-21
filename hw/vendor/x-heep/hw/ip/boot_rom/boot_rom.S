@@ -147,3 +147,15 @@ _spi_fifo_read_8_words:
        // Load ram boot address
        lw     a2, SOC_CTRL_BOOT_ADDRESS_REG_OFFSET(a1)
        jalr   a2
+
+       .align 4
+       .global expected_rotpk_hash
+expected_rotpk_hash:
+       .word 0x966ECC66
+       .word 0x75BD3506
+       .word 0x8DF255B9
+       .word 0x966075E5
+       .word 0x04B66BD1
+       .word 0xE906391C
+       .word 0xD1486A47
+       .word 0xD9B2FB34

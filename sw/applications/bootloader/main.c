@@ -42,11 +42,8 @@
 #define FLASH_MAX_FREQ       (133*1000*1000) 
 #define FC_RD                0x03     // Read Data Command
 
-// Hash simulado de la Clave Publica (RoTPK guardada en eFuses OTP)
-const uint8_t EFUSE_EXPECTED_PK_HASH[32] = {
-    0x96, 0x6e, 0xcc, 0x66, 0x75, 0xbd, 0x35, 0x06, 0x8d, 0xf2, 0x55, 0xb9, 0x96, 0x60, 0x75, 0xe5, 
-    0x04, 0xb6, 0x6b, 0xd1, 0xe9, 0x06, 0x39, 0x1c, 0xd1, 0x48, 0x6a, 0x47, 0xd9, 0xb2, 0xfb, 0x34
-};
+// La Clave Pública Esperada (RoTPK) ahora se encuentra directamente en el HARDWARE.
+// Se ha quemado en la Boot ROM de X-HEEP (Offset 0x3E0).
 
 volatile bool xmss_finished = false;
 
@@ -148,7 +145,21 @@ int main(void) {
         calculated_pk_hash[i*4 + 3] = word & 0xFF;
     }
     
-    if (memcmp(calculated_pk_hash, EFUSE_EXPECTED_PK_HASH, 32) != 0) {
+    uint8_t expected_pk_hash[32];
+    uint32_t* bootrom_rotpk_ptr = (uint32_t*)(BOOTROM_START_ADDRESS + 0xF0);
+    
+    PRINTF("[DEBUG] Volcado de la ROM RoTPK:\n");
+    for (int i = 0; i < 8; i++) {
+        uint32_t expected_word = bootrom_rotpk_ptr[i];
+        PRINTF("%08X ", expected_word);
+        expected_pk_hash[i*4 + 0] = (expected_word >> 24) & 0xFF;
+        expected_pk_hash[i*4 + 1] = (expected_word >> 16) & 0xFF;
+        expected_pk_hash[i*4 + 2] = (expected_word >> 8) & 0xFF;
+        expected_pk_hash[i*4 + 3] = expected_word & 0xFF;
+    }
+    PRINTF("\n");
+    
+    if (memcmp(calculated_pk_hash, expected_pk_hash, 32) != 0) {
         secure_halt("RoTPK Invalida: La clave publica de la Flash no coincide con el Root of Trust (OTP).");
     }
     
