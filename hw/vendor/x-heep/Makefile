@@ -255,20 +255,20 @@ verilator-waves: .check-gtkwave
 ## Launches the RTL simulation with the compiled firmware (`app` target) using
 ## the Questasim model previously built (`questasim-build` target).
 questasim-run: 
-	$(MAKE) -C $(QUESTASIM_DIR) run PLUSARGS="c firmware=../../../sw/build/main.hex"
+	$(MAKE) -C $(QUESTASIM_DIR) run PLUSARGS="c firmware=../../../sw/build/main.hex boot_sel=1 execute_from_flash=0"
 
 ## First builds the app and then uses Questasim to simulate the HW model and run the FW
 questasim-run-app: app
-	$(MAKE) -C $(QUESTASIM_DIR) run PLUSARGS="c firmware=../../../sw/build/main.hex"
+	$(MAKE) -C $(QUESTASIM_DIR) run PLUSARGS="c firmware=../../../sw/build/main.hex boot_sel=1 execute_from_flash=0"
 
 ## Launches the RTL simulation with the compiled firmware (`app` target) using
 ## the Questasim model with HDL optimized compilation previously built (`questasim-build-opt` target).
 questasim-run-opt: 
-	$(MAKE) -C $(QUESTASIM_DIR) run RUN_OPT=1 PLUSARGS="c firmware=../../../sw/build/main.hex"
+	$(MAKE) -C $(QUESTASIM_DIR) run RUN_OPT=1 PLUSARGS="c firmware=../../../sw/build/main.hex boot_sel=1 execute_from_flash=0"
 
 ## First builds the app and then uses Questasim to simulate the HW optimized model and run the FW
 questasim-run-opt-app: app
-	$(MAKE) -C $(QUESTASIM_DIR) run RUN_OPT=1 PLUSARGS="c firmware=../../../sw/build/main.hex"
+	$(MAKE) -C $(QUESTASIM_DIR) run RUN_OPT=1 PLUSARGS="c firmware=../../../sw/build/main.hex boot_sel=1 execute_from_flash=0"
 
 ## @section Vivado
 

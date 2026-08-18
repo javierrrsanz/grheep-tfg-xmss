@@ -280,6 +280,9 @@ elseif(${LINKER} STREQUAL "flash_exec")
   #SET(LIB_CRT_P	"${SOURCE_PATH}device/lib/crt_flash_exec/")
   SET(CRT_TYPE "FLASH_EXEC")
   SET(LINK_FILE "link_flash_exec.ld")
+elseif(${LINKER} STREQUAL "bootrom")
+  SET(CRT_TYPE "FLASH_EXEC")
+  SET(LINK_FILE "link_bootrom.ld")
 else()
   message( FATAL_ERROR "Linker specification is not correct" )
 endif()
@@ -508,7 +511,14 @@ add_custom_command(TARGET ${MAINFILE}.elf POST_BUILD
         COMMENT "Invoking: Disassemble (${CMAKE_OBJDUMP})")
 
 # Post processing command to create a hex file
-if((${LINKER} STREQUAL "flash_load") OR (${LINKER} STREQUAL "flash_exec"))
+if((${LINKER} STREQUAL "flash_load") OR (${LINKER} STREQUAL "flash_exec") OR (${LINKER} STREQUAL "bootrom"))
+    if (LINKER STREQUAL "flash_exec")
+        target_compile_definitions(${MAINFILE}.elf PRIVATE FLASH_EXEC=1)
+    elseif(LINKER STREQUAL "flash_load")
+        target_compile_definitions(${MAINFILE}.elf PRIVATE FLASH_LOAD=1)
+    elseif(LINKER STREQUAL "bootrom")
+        target_compile_definitions(${MAINFILE}.elf PRIVATE BOOTROM_EXEC=1)
+    endif()
     add_custom_command(TARGET ${MAINFILE}.elf POST_BUILD
             COMMAND ${CMAKE_OBJCOPY} -O verilog --adjust-vma=-0x40000000 ${MAINFILE}.elf ${MAINFILE}.hex
             COMMENT "Invoking: Hexdump")

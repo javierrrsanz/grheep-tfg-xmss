@@ -76,6 +76,7 @@ void secure_halt(const char* reason) {
 // ZERO-STAGE BOOTLOADER
 // ============================================================================
 int main(void) {
+
     PRINTF("\n====================================\n");
     PRINTF("--- X-HEEP XMSS SECURE BOOT ROM  ---\n");
     PRINTF("====================================\n");
@@ -154,9 +155,12 @@ int main(void) {
         calculated_pk_hash[i*4 + 3] = word & 0xFF;
     }
     
-    uint8_t expected_pk_hash[32];
-    uint32_t* bootrom_rotpk_ptr = (uint32_t*)(BOOTROM_START_ADDRESS + 0xF0);
+    const uint32_t bootrom_rotpk_ptr[8] = {
+        0x331D2AC4, 0x26192280, 0xC2EF0371, 0xC3055AD5,
+        0xC44C3A65, 0x6825DB91, 0x0A9456AC, 0xBE9558F7
+    };
     
+    uint8_t expected_pk_hash[32];
     PRINTF("[DEBUG] Volcado de la ROM RoTPK:\n");
     for (int i = 0; i < 8; i++) {
         uint32_t expected_word = bootrom_rotpk_ptr[i];
@@ -237,9 +241,9 @@ int main(void) {
     PRINTF("[SECURE BOOT] === INICIANDO APLICACION DE USUARIO ===\n\n");
     
     typedef void (*app_entry_t)(void);
-    // El punto de entrada será ahora 0x018000 + 0x180
     app_entry_t app_entry = (app_entry_t)(SRAM_APP_ADDR + 0x180); 
-    app_entry(); 
+    
+    app_entry();
 
     while(1) { __asm__ volatile("wfi"); }
     return 0;
