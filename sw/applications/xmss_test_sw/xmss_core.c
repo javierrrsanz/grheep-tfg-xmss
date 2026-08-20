@@ -94,6 +94,20 @@ unsigned long long xmss_xmssmt_core_sk_bytes(const xmss_params *params)
     return params->index_bytes + 4 * params->n;
 }
 
+int xmss_core_keypair(const xmss_params *params,
+                      unsigned char *pk, unsigned char *sk)
+{
+    return xmssmt_core_keypair(params, pk, sk);
+}
+
+int xmss_core_sign(const xmss_params *params,
+                   unsigned char *sk,
+                   unsigned char *sm, unsigned long long *smlen,
+                   const unsigned char *m, unsigned long long mlen)
+{
+    return xmssmt_core_sign(params, sk, sm, smlen, m, mlen);
+}
+
 
 
 

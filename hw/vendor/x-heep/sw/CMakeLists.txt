@@ -429,7 +429,13 @@ if(${PROJECT} MATCHES "freertos")
 endif()
 
 # Setting-up the linker
-SET(LINKER_SCRIPT "${LINK_FOLDER}/${LINK_FILE}")
+if(EXISTS "${SOURCE_PATH}applications/${PROJECT}/${LINK_FILE}")
+  SET(LINKER_SCRIPT "${SOURCE_PATH}applications/${PROJECT}/${LINK_FILE}")
+elseif(EXISTS "${SOURCE_PATH}applications/${PROJECT}/link.ld")
+  SET(LINKER_SCRIPT "${SOURCE_PATH}applications/${PROJECT}/link.ld")
+else()
+  SET(LINKER_SCRIPT "${LINK_FOLDER}/${LINK_FILE}")
+endif()
 message( "${Magenta}Linker file: ${LINKER_SCRIPT}${ColourReset}")
 
 # Setting-up the properties, elf is

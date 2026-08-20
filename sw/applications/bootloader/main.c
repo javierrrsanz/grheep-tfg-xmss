@@ -108,11 +108,24 @@ int main(void) {
     }
 
     PRINTF("[SECURE BOOT] Cabecera leida. Tamaño del firmware: %d bytes.\n", firmware_total_size);
-    PRINTF("[SECURE BOOT] Leyendo firmware desde la Flash externa (Offset 0x010004)...\n");
     
-    // Leemos el firmware real (saltándonos los 4 bytes de cabecera)
-    if (w25q128jw_read_quad(0x010004, (uint32_t*)SRAM_APP_ADDR, firmware_total_size) != FLASH_OK) {
-        secure_halt("Error de hardware al leer la memoria Flash.");
+    uint32_t payload_size = firmware_total_size - 68 - 4768;
+    
+    // Usamos una zona de buffer para los metadatos de seguridad (PK + Firma = 4836 bytes)
+    // El payload de la aplicación se descarga DIRECTAMENTE a su dirección final (SRAM_APP_ADDR = 0x018000)
+    #define SRAM_AUTH_META_ADDR  0x010000
+    uint32_t pk_ptr  = SRAM_AUTH_META_ADDR;              // 68 bytes
+    uint32_t sig_ptr = SRAM_AUTH_META_ADDR + 68;         // 4768 bytes
+    uint32_t app_ptr = SRAM_APP_ADDR;                    // payload_size bytes (destino final directo)
+
+    PRINTF("[SECURE BOOT] Leyendo metadatos de autenticacion (PK + Firma, 4836 bytes)...\n");
+    if (w25q128jw_read_quad(0x010004, (uint32_t*)SRAM_AUTH_META_ADDR, 68 + 4768) != FLASH_OK) {
+        secure_halt("Error de hardware al leer metadatos de autenticacion.");
+    }
+
+    PRINTF("[SECURE BOOT] Leyendo Payload directamente a 0x%08X (%d bytes)...\n", SRAM_APP_ADDR, payload_size);
+    if (w25q128jw_read_quad(0x010004 + 68 + 4768, (uint32_t*)SRAM_APP_ADDR, payload_size) != FLASH_OK) {
+        secure_halt("Error de hardware al leer payload de la Flash.");
     }
     
     PRINTF("[SECURE BOOT] Descarga completada.\n");
@@ -120,7 +133,7 @@ int main(void) {
 
     // --- BLOQUE DE DEPURACIÓN ---
     PRINTF("\n[DEBUG] Volcado de los primeros 16 bytes (Clave Publica):\n");
-    uint8_t *mem_ptr = (uint8_t *)SRAM_APP_ADDR;
+    uint8_t *mem_ptr = (uint8_t *)pk_ptr;
     for(int i = 0; i < 16; i++) {
         PRINTF("%02X ", mem_ptr[i]);
     }
@@ -131,7 +144,6 @@ int main(void) {
     // ========================================================================
     PRINTF("[SECURE BOOT] Validando Clave Publica (RoTPK) contra eFuses por Hardware...\n");
     
-    uint32_t pk_ptr  = SRAM_APP_ADDR;                   // 68 bytes
     xmss_write32(XMSS_PK_ADDR_OFFSET, pk_ptr);
     xmss_write32(XMSS_MLEN_OFFSET, 68 * 8); // 544 bits
     
@@ -156,8 +168,8 @@ int main(void) {
     }
     
     const uint32_t bootrom_rotpk_ptr[8] = {
-        0x331D2AC4, 0x26192280, 0xC2EF0371, 0xC3055AD5,
-        0xC44C3A65, 0x6825DB91, 0x0A9456AC, 0xBE9558F7
+        0x08328EEA, 0xF7273C27, 0x529839E8, 0x5F830A40,
+        0xED34BEC8, 0x04506032, 0xD9382016, 0x56FA4D8C
     };
     
     uint8_t expected_pk_hash[32];
@@ -181,11 +193,6 @@ int main(void) {
     // ========================================================================
     // 5. PARSEO Y CONFIGURACIÓN DEL ACELERADOR XMSS PARA VERIFICACIÓN
     // ========================================================================
-    uint32_t payload_size = firmware_total_size - 68 - 4768;
-
-    uint32_t sig_ptr = SRAM_APP_ADDR + 68;              // 4768 bytes
-    uint32_t app_ptr = SRAM_APP_ADDR + 68 + 4768;       // payload_size bytes
-
     PRINTF("[SECURE BOOT] Configurando Acelerador Hardware para verificacion...\n");
     // XMSS_PK_ADDR_OFFSET ya está configurado (pk_ptr)
     xmss_write32(XMSS_SIG_ADDR_OFFSET, sig_ptr);
@@ -225,13 +232,6 @@ int main(void) {
     CSR_CLEAR_BITS(CSR_REG_MIE, intr_mask);
     enable_fast_interrupt(kExt_peri_fic_e, false);
 
-    // 7. REUBICACIÓN DEL PAYLOAD Y LIMPIEZA
-    PRINTF("[SECURE BOOT] Reubicando la aplicacion a su direccion base (0x%08X)...\n", SRAM_APP_ADDR);
-    
-    // Copiamos el payload desde app_ptr hacia SRAM_APP_ADDR para que coincida con su link.ld
-    memcpy((void*)SRAM_APP_ADDR, (void*)app_ptr, payload_size);
-    
-    PRINTF("[SECURE BOOT] Reubicacion completada exitosamente.\n");
     PRINTF("[SECURE BOOT] Preparando salto de Programa...\n");
 
     
