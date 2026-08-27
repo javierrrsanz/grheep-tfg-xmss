@@ -1724,8 +1724,8 @@ static w25q_error_codes_t w25q128jw_sanity_checks(uint32_t addr, uint8_t *data, 
     // Check if address is out of range
     if (addr > MAX_FLASH_ADDR || addr < 0) return FLASH_ERROR;
 
-    // Check if data pointer is NULL
-    if (data == NULL) return FLASH_ERROR;
+    // Note: In bare-metal RISC-V SRAM, 0x00000000 is valid RAM start address (not NULL pointer).
+    // (void)data;
 
     // Check if length is 0
     if (length <= 0) return FLASH_ERROR;

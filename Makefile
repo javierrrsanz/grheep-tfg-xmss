@@ -68,6 +68,12 @@ export LINKER := bootrom
 export COMPILER_FLAGS := -DFLASH_EXEC
 endif
 
+ifeq ($(PROJECT),zsbl)
+FLASH_FIRMWARE_IMAGE := ../../../sw/applications/zsbl/spiflash.hex
+export LINKER := bootrom
+export COMPILER_FLAGS := -DFLASH_EXEC
+endif
+
 # Vendor
 MODULE_NAME ?= x-heep
 
