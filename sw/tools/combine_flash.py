@@ -6,7 +6,7 @@ import os
 # Offset 0x010000: APP firmado con app_key (spiflash.bin de la app)
 
 fsbl_signed_path = "sw/applications/fsbl/fsbl_signed.bin"
-app_signed_path  = "sw/applications/bootloader/spiflash.bin"
+app_signed_path  = "sw/applications/app_dummy/app_signed.bin"
 output_hex_path  = "sw/applications/zsbl/spiflash.hex"
 
 try:

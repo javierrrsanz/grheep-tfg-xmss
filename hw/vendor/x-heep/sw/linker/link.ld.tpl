@@ -90,11 +90,11 @@ SECTIONS
   .rodata         :
   {
     *(.rodata .rodata.* .gnu.linkonce.r.*)
-  } >ram1
+  } >ram0
   .rodata1        :
   {
     *(.rodata1)
-  } >ram1
+  } >ram0
 
   /* second level sbss and sdata, I don't think we need this */
   /* .sdata2         : {*(.sdata2 .sdata2.* .gnu.linkonce.s2.*)} */
@@ -149,11 +149,11 @@ SECTIONS
   {
     PROVIDE_HIDDEN (__tdata_start = .);
     *(.tdata .tdata.* .gnu.linkonce.td.*)
-  } >ram1
+  } >ram0
   .tbss     :
   {
     *(.tbss .tbss.* .gnu.linkonce.tb.*) *(.tcommon)
-  } >ram1
+  } >ram0
 
   /* initialization and termination routines */
   .preinit_array     :
@@ -161,21 +161,21 @@ SECTIONS
     PROVIDE_HIDDEN (__preinit_array_start = .);
     KEEP (*(.preinit_array))
     PROVIDE_HIDDEN (__preinit_array_end = .);
-  } >ram1
+  } >ram0
   .init_array     :
   {
     PROVIDE_HIDDEN (__init_array_start = .);
     KEEP (*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
     KEEP (*(.init_array EXCLUDE_FILE (*crtbegin.o *crtbegin?.o *crtend.o *crtend?.o ) .ctors))
     PROVIDE_HIDDEN (__init_array_end = .);
-  } >ram1
+  } >ram0
   .fini_array     :
   {
     PROVIDE_HIDDEN (__fini_array_start = .);
     KEEP (*(SORT_BY_INIT_PRIORITY(.fini_array.*) SORT_BY_INIT_PRIORITY(.dtors.*)))
     KEEP (*(.fini_array EXCLUDE_FILE (*crtbegin.o *crtbegin?.o *crtend.o *crtend?.o ) .dtors))
     PROVIDE_HIDDEN (__fini_array_end = .);
-  } >ram1
+  } >ram0
   .ctors          :
   {
     /* gcc uses crtbegin.o to find the start of
@@ -217,11 +217,11 @@ SECTIONS
     __DATA_BEGIN__ = .;
     *(.data .data.* .gnu.linkonce.d.*)
     SORT(CONSTRUCTORS)
-  } >ram1
+  } >ram0
   .data1          :
   {
     *(.data1)
-  } >ram1
+  } >ram0
 
   _lma_vma_data_offset = 0x0;
 
@@ -236,7 +236,7 @@ SECTIONS
     __SDATA_BEGIN__ = .;
     *(.srodata.cst16) *(.srodata.cst8) *(.srodata.cst4) *(.srodata.cst2) *(.srodata .srodata.*)
     *(.sdata .sdata.* .gnu.linkonce.s.*)
-  } >ram1
+  } >ram0
   _edata = .; PROVIDE (edata = .);
   . = .;
 
@@ -247,7 +247,7 @@ SECTIONS
     *(.dynsbss)
     *(.sbss .sbss.* .gnu.linkonce.sb.*)
     *(.scommon)
-  } >ram1
+  } >ram0
   .bss            :
   {
    *(.dynbss)
@@ -259,7 +259,7 @@ SECTIONS
       FIXME: Why do we need it? When there is no .bss section, we don't
       pad the .data section.  */
    . = ALIGN(. != 0 ? 32 / 8 : 1);
-  } >ram1
+  } >ram0
   . = ALIGN(32 / 8);
   . = SEGMENT_START("ldata-segment", .);
   . = ALIGN(32 / 8);
@@ -279,7 +279,7 @@ SECTIONS
    PROVIDE(__heap_start = .);
    . += __heap_size;
    PROVIDE(__heap_end = .);
-  } >ram1
+  } >ram0
 
   /* stack: we should consider putting this further to the top of the address
     space */
@@ -290,7 +290,7 @@ SECTIONS
    PROVIDE(_sp = .);
    PROVIDE(__stack_end = .);
    PROVIDE(__freertos_irq_stack_top = .);
-  } >ram1
+  } >ram0
 
 % for i, section in enumerate(xheep.memory_ss().iter_linker_sections()):
 % if not section.name in ["code", "data"]:
