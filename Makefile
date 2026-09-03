@@ -145,6 +145,13 @@ questasim-build:
 questasim-build-opt: questasim-build
 	$(MAKE) -C $(QUESTASIM_DIR) opt
 
+## Run Questasim simulation with HDL optimized compilation (GR-HEEP)
+.PHONY: questasim-run-opt
+questasim-run-opt:
+	$(MAKE) -C $(QUESTASIM_DIR) run RUN_OPT=1 PLUSARGS="c firmware=../../../hw/vendor/x-heep/sw/build/main.hex boot_sel=1 execute_from_flash=0"
+	@echo -e "\033[1m### DONE! Simulation finished. UART output:\033[0m"
+	@cat $(QUESTASIM_DIR)/uart0.log
+
 ## First builds the app and then uses Questasim to simulate the HW model and run the FW
 .PHONY: questasim-run-app
 questasim-run-app:

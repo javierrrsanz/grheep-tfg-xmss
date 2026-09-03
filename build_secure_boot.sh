@@ -42,11 +42,11 @@ python3 sw/tools/combine_flash.py
 
 echo ""
 echo "=============================================="
-echo "6. Compilando ZSBL (Boot ROM)"
+echo "6. Compilando ZSBL (Boot ROM en Ensamblador)"
 echo "=============================================="
-make -C hw/vendor/x-heep/sw clean
-make app PROJECT=zsbl
+make -C hw/vendor/x-heep/hw/ip/boot_rom clean
 make -C hw/vendor/x-heep/hw/ip/boot_rom
+cp sw/applications/zsbl/spiflash.hex hw/vendor/x-heep/sw/build/main.hex
 
 echo ""
 echo "=============================================="
