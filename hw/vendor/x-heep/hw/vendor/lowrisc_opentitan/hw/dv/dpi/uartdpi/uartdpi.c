@@ -123,5 +123,6 @@ void uartdpi_write(void *ctx_void, char c) {
   if (ctx->log_file) {
     rv = fwrite(&c, sizeof(char), 1, ctx->log_file);
     assert(rv == 1 && "Write to log file failed.");
+    fflush(ctx->log_file);
   }
 }

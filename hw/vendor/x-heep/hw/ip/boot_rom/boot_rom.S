@@ -12,6 +12,7 @@
 #define POWER_MANAGER_START_ADDRESS_20bit  (POWER_MANAGER_START_ADDRESS >> 12)
 #define SPI_FLASH_START_ADDRESS_20bit      (SPI_FLASH_START_ADDRESS >> 12)
 #define XMSS_PERIPH_START_ADDRESS_20bit    (0x20070000 >> 12)
+#define UART_START_ADDRESS_20bit           (0x30080000 >> 12)
 
 #define SRAM_FSBL_ADDR                     0x00000000
 #define SRAM_AUTH_META_ADDR                0x00008000
@@ -67,6 +68,18 @@ _execute_from_flash:
        jalr    a1
 
 _copy_from_flash:
+       // 1. Inicializar UART una sola vez (Reset FIFO y NCO=0xCCCC para 5MBaud)
+       lui     a4, UART_START_ADDRESS_20bit
+       li      t6, 3
+       sw      t6, 0x1c(a4)            // FIFO_CTRL = 3 (RXRST=1, TXRST=1)
+       lui     t6, 0xCCCC0
+       ori     t6, t6, 3
+       sw      t6, 0x0c(a4)            // CTRL = 0xCCCC0003 (NCO + TX + RX)
+
+       // 2. Mensaje inicial por UART
+       la      a0, msg_zsbl_start
+       jal     ra, _uart_puts
+
        lui     a1, SPI_FLASH_START_ADDRESS_20bit
        // Enable spi
        lui     a0, 0xa0000
@@ -194,11 +207,15 @@ _wait_hash_done:
 _check_hash_word:
        lw      t4, 0(t3)
        lw      t5, 0(t1)
-       bne     t4, t5, _secure_halt
+       bne     t4, t5, _fail_rotpk
        addi    t3, t3, 4
        addi    t1, t1, 4
        addi    t2, t2, -1
        bnez    t2, _check_hash_word
+
+       // RoTPK Valida
+       la      a0, msg_rotpk_ok
+       jal     ra, _uart_puts
 
        // -------------------------------------------------------------
        // 5. VERIFICACIÓN COMPLETA DE FIRMA XMSS DEL FSBL
@@ -233,11 +250,15 @@ _wait_xmss_done:
        li      t2, SECURE_VALID_CODE
        slli    t3, t0, 16
        srli    t3, t3, 16
-       bne     t3, t2, _secure_halt
+       bne     t3, t2, _fail_xmss
 
        // Limpiar flag con ACK: CTRL = 0x02
        li      t0, 0x02
        sw      t0, XMSS_CTRL_OFFSET(a2)
+
+       // Firma XMSS Valida
+       la      a0, msg_xmss_ok
+       jal     ra, _uart_puts
 
        // -------------------------------------------------------------
        // 6. SALTO A LA ETAPA 1 (FSBL @ 0x00000180)
@@ -247,9 +268,27 @@ _wait_xmss_done:
        addi    a0, a0, 0x180
        jalr    a0
 
-_secure_halt:
-       wfi
+_fail_rotpk:
+       la      a0, msg_err_rotpk
+       jal     ra, _uart_puts
+       li      s5, 1
        j       _secure_halt
+
+_fail_xmss:
+       la      a0, msg_err_xmss
+       jal     ra, _uart_puts
+       li      s5, 2
+       j       _secure_halt
+
+_secure_halt:
+       // Notificar fallo al testbench de Questasim ($finish automático)
+       lui     a1, SOC_CTRL_START_ADDRESS_20bit
+       sw      s5, SOC_CTRL_EXIT_VALUE_REG_OFFSET(a1)
+       li      a0, 1
+       sw      a0, SOC_CTRL_EXIT_VALID_REG_OFFSET(a1)
+_halt_loop:
+       wfi
+       j       _halt_loop
 
 // --------------------------------------------------------------------
 // Subrutina: Leer a3 bytes de SPI Flash hacia s1 (RAM)
@@ -308,6 +347,46 @@ _drain_rx_word:
 
 _read_block_ret:
        ret
+
+// --------------------------------------------------------------------
+// Subrutina: Transmitir cadena por UART (a0 = puntero a string)
+// --------------------------------------------------------------------
+_uart_puts:
+       lui     a4, UART_START_ADDRESS_20bit
+
+_uart_puts_loop:
+       lbu     t6, 0(a0)
+       beqz    t6, _uart_puts_ret
+
+_wait_tx_not_full:
+       lw      t5, 0x10(a4)            // UART_STATUS (offset 0x10)
+       andi    t5, t5, 1               // Bit 0 = TXFULL
+       bnez    t5, _wait_tx_not_full   // Si la FIFO esta llena, esperar
+
+       sw      t6, 0x18(a4)            // UART_WDATA (offset 0x18)
+       addi    a0, a0, 1
+       j       _uart_puts_loop
+
+_uart_puts_ret:
+       ret
+
+// --------------------------------------------------------------------
+// Mensajes de Texto del ZSBL
+// --------------------------------------------------------------------
+msg_zsbl_start:
+       .string "\n==============================================\n---   X-HEEP ZSBL (ETAPA 0 - BOOT ROM ASM) ---\n==============================================\n[ZSBL] Leyendo FSBL y metadatos de la Flash SPI...\n"
+
+msg_rotpk_ok:
+       .string "[ZSBL] Clave Publica RoTPK AUTENTICADA con exito.\n[ZSBL] Verificando firma XMSS del FSBL en Hardware...\n"
+
+msg_xmss_ok:
+       .string "[ZSBL] Exito: Firma del FSBL validada correctamente por HW.\n[ZSBL] === SALTANDO A FSBL (0x00000180) ===\n\n"
+
+msg_err_rotpk:
+       .string "\n[ZSBL ERROR CRITICO] RoTPK Invalida: Clave publica no coincide con OTP/ROM.\n[ZSBL] Sistema bloqueado permanentemente (Secure Halt).\n"
+
+msg_err_xmss:
+       .string "\n[ZSBL ERROR CRITICO] Firma XMSS del FSBL Invalida o Binario Corrupto.\n[ZSBL] Sistema bloqueado permanentemente (Secure Halt).\n"
 
 // --------------------------------------------------------------------
 // Clave Pública Root of Trust esperada (Hash SHA-256 de rot_key.pk)
