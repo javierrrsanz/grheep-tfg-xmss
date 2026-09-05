@@ -83,7 +83,7 @@ begin
      	          else
                       -- Gestion de nodos impares y subida de nivel
      	              v.height := r.height + 1;
-     	              if r.l mod 2 = 1 then
+     	              if r.l(0) = '1' then
      	                  v.l := shift_right(r.l, 1) + 1;
      	                  v.state := S_SWITCH_READ; 
      	              else 

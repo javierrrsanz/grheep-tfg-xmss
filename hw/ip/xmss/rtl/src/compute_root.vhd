@@ -98,7 +98,7 @@ begin
     -- of the auth path fetched from external memory.
     init_mux : process(r.init, d.leaf, d.thash.o, r.auth_word, r.leaf_idx)
     begin
-        if r.leaf_idx mod 2 = 0 then
+        if r.leaf_idx(0) = '0' then
             if r.init = '1' then
                 q.thash.input_1 <= d.leaf;
             else

@@ -27,3 +27,11 @@ transcript
 
 # Ctags
 tags
+
+# XMSS / Secure Boot generated files
+sw/applications/fsbl/*.bin
+sw/applications/app_dummy/*.bin
+sw/tools/signer
+sw/tools/keys/*.pk
+sw/tools/keys/*.sk
+
