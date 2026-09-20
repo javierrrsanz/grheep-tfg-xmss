@@ -2,6 +2,12 @@
 set -e
 
 echo "=============================================="
+echo "0. Limpiando compilaciones previas"
+echo "=============================================="
+make clean
+
+echo ""
+echo "=============================================="
 echo "1. Recompilando Herramienta de Firma (Signer)"
 echo "=============================================="
 gcc -O2 -Isw/applications/xmss_test_sw sw/tools/signer.c sw/applications/xmss_test_sw/xmss.c sw/applications/xmss_test_sw/params.c sw/applications/xmss_test_sw/hash.c sw/applications/xmss_test_sw/sha256.c sw/applications/xmss_test_sw/hash_address.c sw/applications/xmss_test_sw/wots.c sw/applications/xmss_test_sw/xmss_commons.c sw/applications/xmss_test_sw/xmss_core.c sw/applications/xmss_test_sw/utils.c -o sw/tools/signer

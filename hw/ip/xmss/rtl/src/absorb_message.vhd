@@ -156,7 +156,9 @@ begin
                
                if r.shift_ctr = 15 then
                    v.state := S_WAIT_SHA_MNEXT;
-                   v.remaining_len := r.remaining_len - 512;
+                   if r.len_appended = '0' then
+                       v.remaining_len := r.remaining_len - 512;
+                   end if;
                end if;
                
            when S_WAIT_SHA_MNEXT =>

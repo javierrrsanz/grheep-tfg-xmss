@@ -263,9 +263,44 @@ _wait_xmss_done:
        // -------------------------------------------------------------
        // 6. SALTO A LA ETAPA 1 (FSBL @ 0x00000180)
        // -------------------------------------------------------------
+
        fence.i
        lui     a0, 0
        addi    a0, a0, 0x180
+
+       // Hardening: Limpiar todos los registros de CPU (excepto a0)
+       // para evitar filtración de metadatos o fragmentos de claves/hashes
+       mv      x1, zero
+       mv      x2, zero
+       mv      x3, zero
+       mv      x4, zero
+       mv      x5, zero
+       mv      x6, zero
+       mv      x7, zero
+       mv      x8, zero
+       mv      x9, zero
+       mv      x11, zero
+       mv      x12, zero
+       mv      x13, zero
+       mv      x14, zero
+       mv      x15, zero
+       mv      x16, zero
+       mv      x17, zero
+       mv      x18, zero
+       mv      x19, zero
+       mv      x20, zero
+       mv      x21, zero
+       mv      x22, zero
+       mv      x23, zero
+       mv      x24, zero
+       mv      x25, zero
+       mv      x26, zero
+       mv      x27, zero
+       mv      x28, zero
+       mv      x29, zero
+       mv      x30, zero
+       mv      x31, zero
+
        jalr    a0
 
 _fail_rotpk:

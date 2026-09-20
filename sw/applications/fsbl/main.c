@@ -137,14 +137,6 @@ int main(void) {
     
     PRINTF("[FSBL] Descarga completada.\n");
 
-    // --- BLOQUE DE DEPURACIÓN ---
-    PRINTF("\n[DEBUG] Volcado de los primeros 16 bytes (Clave Publica App):\n");
-    uint8_t *mem_ptr = (uint8_t *)pk_ptr;
-    for(int i = 0; i < 16; i++) {
-        PRINTF("%02X ", mem_ptr[i]);
-    }
-    PRINTF("\n\n");
-
     // ========================================================================
     // 3. VALIDACIÓN DE LA CLAVE PÚBLICA DE LA APP POR HARDWARE (HASH_ONLY)
     // ========================================================================
@@ -164,38 +156,16 @@ int main(void) {
         CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
     }
     
-    uint8_t calculated_pk_hash[32];
-    PRINTF("[DEBUG] Volcado de Hash calculado por HW:\n");
-    for (int i = 0; i < 8; i++) {
-        uint32_t word = xmss_read32(0x20 + (i * 4));
-        PRINTF("%08X ", word);
-        calculated_pk_hash[i*4 + 0] = (word >> 24) & 0xFF;
-        calculated_pk_hash[i*4 + 1] = (word >> 16) & 0xFF;
-        calculated_pk_hash[i*4 + 2] = (word >> 8) & 0xFF;
-        calculated_pk_hash[i*4 + 3] = word & 0xFF;
-    }
-    PRINTF("\n");
-    
     // Hash SHA-256 real de la Clave Publica de la App (app_key.pk en Flash)
     const uint32_t expected_app_pk_hash[8] = {
         0x42B6FF15, 0x898325AE, 0x0B47A143, 0xCC27118F,
         0x19374132, 0xFAE537C6, 0x7898A751, 0xE115547C
     };
     
-    uint8_t expected_pk_hash[32];
-    PRINTF("[DEBUG] Volcado de Hash esperado en FSBL:\n");
     for (int i = 0; i < 8; i++) {
-        uint32_t expected_word = expected_app_pk_hash[i];
-        PRINTF("%08X ", expected_word);
-        expected_pk_hash[i*4 + 0] = (expected_word >> 24) & 0xFF;
-        expected_pk_hash[i*4 + 1] = (expected_word >> 16) & 0xFF;
-        expected_pk_hash[i*4 + 2] = (expected_word >> 8) & 0xFF;
-        expected_pk_hash[i*4 + 3] = expected_word & 0xFF;
-    }
-    PRINTF("\n");
-    
-    if (memcmp(calculated_pk_hash, expected_pk_hash, 32) != 0) {
-        secure_halt("Clave Publica de la App NO coincide con el Hash esperado en FSBL.");
+        if (xmss_read32(0x20 + (i * 4)) != expected_app_pk_hash[i]) {
+            secure_halt("Clave Publica de la App NO coincide con el Hash esperado en FSBL.");
+        }
     }
     
     PRINTF("[FSBL] Clave Publica de la App AUTENTICADA con exito.\n");
@@ -207,6 +177,7 @@ int main(void) {
     xmss_write32(XMSS_SIG_ADDR_OFFSET, sig_ptr);
     xmss_write32(XMSS_MSG_ADDR_OFFSET, app_ptr);
     xmss_write32(XMSS_MLEN_OFFSET,     payload_size * 8);
+    xmss_write32(XMSS_PK_ADDR_OFFSET, pk_ptr);
 
     // 5. LANZAR VERIFICACIÓN
     PRINTF("[FSBL] Ejecutando verificacion criptografica XMSS de la App por Hardware...\n");
@@ -225,6 +196,8 @@ int main(void) {
     uint32_t status = xmss_read32(XMSS_STATUS_OFFSET);
     uint16_t valid_code = (uint16_t)(status & 0xFFFFu);
 
+    PRINTF("[FSBL] Resultado Verificacion HW: Status = 0x%08X (Codigo: 0x%04X)\n", status, valid_code);
+
     if (valid_code != SECURE_VALID_CODE) {
         secure_halt("Firma XMSS de la Aplicacion Invalida o Binario Corrupto.");
     }
@@ -238,6 +211,10 @@ int main(void) {
 
     PRINTF("[FSBL] Preparando salto a Aplicacion de Usuario...\n");
     
+    // Hardening: Limpieza de SRAM (Buffer Scrubbing)
+    // Borramos a cero absoluto la clave publica y firma
+    memset((void*)SRAM_AUTH_META_ADDR, 0, 68 + 4768);
+
     // Sincronizar memoria de instrucciones
     __asm__ volatile ("fence.i");
 

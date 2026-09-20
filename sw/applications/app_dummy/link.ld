@@ -17,13 +17,11 @@ ENTRY(_start)
 
 MEMORY
 {
-    /* Mantenemos ram0 pero en 0x018000 */
-    ram0 (rwxa) : ORIGIN = 0x018000, LENGTH = 0x008000
-    ram1 (rwxa) : ORIGIN = 0x020000, LENGTH = 0x008000 /* Ajustado para no pasarnos de 160KB */
+    /* Memoria contigua para la App desde 0x018000 (RAM3 + RAM4 = 64KB) */
+    ram0 (rwxa) : ORIGIN = 0x018000, LENGTH = 0x010000
 }
 /*
- * This linker script try to put data in ram1 and code
- * in ram0.
+ * Coloca código y datos de forma contigua en ram0 a partir de 0x018000.
 */
 
 SECTIONS
@@ -86,11 +84,11 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
   .rodata         :
   {
     *(.rodata .rodata.* .gnu.linkonce.r.*)
-  } >ram1
+  } >ram0
   .rodata1        :
   {
     *(.rodata1)
-  } >ram1
+  } >ram0
 
   /* second level sbss and sdata, I don't think we need this */
   /* .sdata2         : {*(.sdata2 .sdata2.* .gnu.linkonce.s2.*)} */
@@ -145,11 +143,11 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
   {
     PROVIDE_HIDDEN (__tdata_start = .);
     *(.tdata .tdata.* .gnu.linkonce.td.*)
-  } >ram1
+  } >ram0
   .tbss     :
   {
     *(.tbss .tbss.* .gnu.linkonce.tb.*) *(.tcommon)
-  } >ram1
+  } >ram0
 
   /* initialization and termination routines */
   .preinit_array     :
@@ -157,21 +155,21 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
     PROVIDE_HIDDEN (__preinit_array_start = .);
     KEEP (*(.preinit_array))
     PROVIDE_HIDDEN (__preinit_array_end = .);
-  } >ram1
+  } >ram0
   .init_array     :
   {
     PROVIDE_HIDDEN (__init_array_start = .);
     KEEP (*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
     KEEP (*(.init_array EXCLUDE_FILE (*crtbegin.o *crtbegin?.o *crtend.o *crtend?.o ) .ctors))
     PROVIDE_HIDDEN (__init_array_end = .);
-  } >ram1
+  } >ram0
   .fini_array     :
   {
     PROVIDE_HIDDEN (__fini_array_start = .);
     KEEP (*(SORT_BY_INIT_PRIORITY(.fini_array.*) SORT_BY_INIT_PRIORITY(.dtors.*)))
     KEEP (*(.fini_array EXCLUDE_FILE (*crtbegin.o *crtbegin?.o *crtend.o *crtend?.o ) .dtors))
     PROVIDE_HIDDEN (__fini_array_end = .);
-  } >ram1
+  } >ram0
   .ctors          :
   {
     /* gcc uses crtbegin.o to find the start of
@@ -213,11 +211,11 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
     __DATA_BEGIN__ = .;
     *(.data .data.* .gnu.linkonce.d.*)
     SORT(CONSTRUCTORS)
-  } >ram1
+  } >ram0
   .data1          :
   {
     *(.data1)
-  } >ram1
+  } >ram0
 
   _lma_vma_data_offset = 0x0;
 
@@ -232,7 +230,7 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
     __SDATA_BEGIN__ = .;
     *(.srodata.cst16) *(.srodata.cst8) *(.srodata.cst4) *(.srodata.cst2) *(.srodata .srodata.*)
     *(.sdata .sdata.* .gnu.linkonce.s.*)
-  } >ram1
+  } >ram0
   _edata = .; PROVIDE (edata = .);
   . = .;
 
@@ -243,7 +241,7 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
     *(.dynsbss)
     *(.sbss .sbss.* .gnu.linkonce.sb.*)
     *(.scommon)
-  } >ram1
+  } >ram0
   .bss            :
   {
    *(.dynbss)
@@ -255,7 +253,7 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
       FIXME: Why do we need it? When there is no .bss section, we don't
       pad the .data section.  */
    . = ALIGN(. != 0 ? 32 / 8 : 1);
-  } >ram1
+  } >ram0
   . = ALIGN(32 / 8);
   . = SEGMENT_START("ldata-segment", .);
   . = ALIGN(32 / 8);
@@ -275,7 +273,7 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
    PROVIDE(__heap_start = .);
    . += __heap_size;
    PROVIDE(__heap_end = .);
-  } >ram1
+  } >ram0
 
   /* stack: we should consider putting this further to the top of the address
     space */
@@ -286,7 +284,7 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
    PROVIDE(_sp = .);
    PROVIDE(__stack_end = .);
    PROVIDE(__freertos_irq_stack_top = .);
-  } >ram1
+  } >ram0
 
 
   /* Stabs debugging sections.  */
