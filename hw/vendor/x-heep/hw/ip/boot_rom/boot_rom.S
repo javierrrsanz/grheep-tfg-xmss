@@ -29,6 +29,8 @@
 
 #define SECURE_VALID_CODE                  0x3C5A
 
+#define ZSBL_UART_ENABLE                   0
+
 #define SEXT_IMM(x) ((x) | (-(((x) >> 11) & 1) << 11))
 
        .global entry
@@ -68,6 +70,8 @@ _execute_from_flash:
        jalr    a1
 
 _copy_from_flash:
+
+#if ZSBL_UART_ENABLE
        // 1. Inicializar UART una sola vez (Reset FIFO y NCO=0xCCCC para 5MBaud)
        lui     a4, UART_START_ADDRESS_20bit
        li      t6, 3
@@ -79,6 +83,7 @@ _copy_from_flash:
        // 2. Mensaje inicial por UART
        la      a0, msg_zsbl_start
        jal     ra, _uart_puts
+#endif
 
        lui     a1, SPI_FLASH_START_ADDRESS_20bit
        // Enable spi
@@ -213,9 +218,11 @@ _check_hash_word:
        addi    t2, t2, -1
        bnez    t2, _check_hash_word
 
+#if ZSBL_UART_ENABLE
        // RoTPK Valida
        la      a0, msg_rotpk_ok
        jal     ra, _uart_puts
+#endif
 
        // -------------------------------------------------------------
        // 5. VERIFICACIÓN COMPLETA DE FIRMA XMSS DEL FSBL
@@ -256,9 +263,11 @@ _wait_xmss_done:
        li      t0, 0x02
        sw      t0, XMSS_CTRL_OFFSET(a2)
 
+#if ZSBL_UART_ENABLE
        // Firma XMSS Valida
        la      a0, msg_xmss_ok
        jal     ra, _uart_puts
+#endif
 
        // -------------------------------------------------------------
        // 6. SALTO A LA ETAPA 1 (FSBL @ 0x00000180)
@@ -304,26 +313,22 @@ _wait_xmss_done:
        jalr    a0
 
 _fail_rotpk:
+#if ZSBL_UART_ENABLE
        la      a0, msg_err_rotpk
        jal     ra, _uart_puts
-       li      s5, 1
+#endif
        j       _secure_halt
 
 _fail_xmss:
+#if ZSBL_UART_ENABLE
        la      a0, msg_err_xmss
        jal     ra, _uart_puts
-       li      s5, 2
+#endif
        j       _secure_halt
 
 _secure_halt:
-       // Notificar fallo al testbench de Questasim ($finish automático)
-       lui     a1, SOC_CTRL_START_ADDRESS_20bit
-       sw      s5, SOC_CTRL_EXIT_VALUE_REG_OFFSET(a1)
-       li      a0, 1
-       sw      a0, SOC_CTRL_EXIT_VALID_REG_OFFSET(a1)
-_halt_loop:
        wfi
-       j       _halt_loop
+       j       _secure_halt
 
 // --------------------------------------------------------------------
 // Subrutina: Leer a3 bytes de SPI Flash hacia s1 (RAM)
@@ -383,6 +388,7 @@ _drain_rx_word:
 _read_block_ret:
        ret
 
+#if ZSBL_UART_ENABLE
 // --------------------------------------------------------------------
 // Subrutina: Transmitir cadena por UART (a0 = puntero a string)
 // --------------------------------------------------------------------
@@ -422,6 +428,7 @@ msg_err_rotpk:
 
 msg_err_xmss:
        .string "\n[ZSBL ERROR CRITICO] Firma XMSS del FSBL Invalida o Binario Corrupto.\n[ZSBL] Sistema bloqueado permanentemente (Secure Halt).\n"
+#endif
 
 // --------------------------------------------------------------------
 // Clave Pública Root of Trust esperada (Hash SHA-256 de rot_key.pk)

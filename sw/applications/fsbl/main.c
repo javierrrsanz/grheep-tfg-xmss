@@ -1,6 +1,4 @@
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 #include <stdbool.h>
 
 #include "gr_heep.h"
@@ -8,17 +6,14 @@
 #include "hart.h"
 #include "csr.h"
 #include "fast_intr_ctrl.h"
-
 #include "spi_sdk.h"
-#include "bitfield.h"
 #include "w25q128jw.h"
 
 #define PRINTF_IN_FPGA  0
-#define PRINTF_IN_SIM   1
+#define PRINTF_IN_SIM   0
 
-#if TARGET_SIM && PRINTF_IN_SIM
-    #define PRINTF(fmt, ...)    printf(fmt, ## __VA_ARGS__)
-#elif PRINTF_IN_FPGA && !TARGET_SIM
+#if (TARGET_SIM && PRINTF_IN_SIM) || (PRINTF_IN_FPGA && !TARGET_SIM)
+    #include <stdio.h>
     #define PRINTF(fmt, ...)    printf(fmt, ## __VA_ARGS__)
 #else
     #define PRINTF(...)
@@ -60,29 +55,12 @@ void fic_irq_ext_peripheral(void) {
     xmss_write32(XMSS_CTRL_OFFSET, 0x02); // ACK
 }
 
-void secure_halt(const char* reason) {
-    PRINTF("\n[FSBL ERROR CRITICO] %s\n", reason);
-    PRINTF("[FSBL] Sistema bloqueado permanentemente.\n");
-    while(1) { __asm__ volatile ("wfi"); }
+void secure_halt(void) {
+    while (1) {
+        __asm__ volatile ("wfi");
+    }
 }
 
-// Exception handlers para depuración
-void handler_exception(void) {
-    uint32_t mcause, mepc, mtval;
-    CSR_READ(CSR_REG_MCAUSE, &mcause);
-    CSR_READ(CSR_REG_MEPC, &mepc);
-    CSR_READ(CSR_REG_MTVAL, &mtval);
-    PRINTF("\n[FSBL TRAP] Excepcion detectada! mcause=0x%08X, mepc=0x%08X, mtval=0x%08X\n", mcause, mepc, mtval);
-    secure_halt("Excepcion no controlada en FSBL.");
-}
-
-void handler_bkpt(void) {
-    uint32_t mepc, mtval;
-    CSR_READ(CSR_REG_MEPC, &mepc);
-    CSR_READ(CSR_REG_MTVAL, &mtval);
-    PRINTF("\n[FSBL TRAP] Breakpoint (ebreak) detectado! mepc=0x%08X, mtval=0x%08X\n", mepc, mtval);
-    secure_halt("Trap ebreak.");
-}
 
 // ============================================================================
 // FIRST-STAGE BOOTLOADER (FSBL - ETAPA 1)
@@ -107,14 +85,14 @@ int main(void) {
     PRINTF("[FSBL] Inicializando bus SPI Flash...\n");
     
     if (w25q128jw_init(spi_flash) != FLASH_OK) {
-        secure_halt("Fallo critico al inicializar SPI Flash.");
+        secure_halt();
     }
 
     uint32_t firmware_total_size = 0;
     
     // Leemos los primeros 4 bytes de la cabecera (offset 0x010000)
     if (w25q128jw_read_quad(FLASH_APP_OFFSET, &firmware_total_size, 4) != FLASH_OK) {
-        secure_halt("Error de hardware al leer la cabecera de la App de la Flash.");
+        secure_halt();
     }
 
     PRINTF("[FSBL] Cabecera leida. Tamaño total App: %d bytes.\n", firmware_total_size);
@@ -127,12 +105,12 @@ int main(void) {
 
     PRINTF("[FSBL] Leyendo metadatos de autenticacion (PK + Firma, 4836 bytes)...\n");
     if (w25q128jw_read_quad(FLASH_APP_OFFSET + 4, (uint32_t*)SRAM_AUTH_META_ADDR, 68 + 4768) != FLASH_OK) {
-        secure_halt("Error de hardware al leer metadatos de autenticacion.");
+        secure_halt();
     }
 
     PRINTF("[FSBL] Leyendo Payload directamente a 0x%08X (%d bytes)...\n", SRAM_APP_ADDR, payload_size);
     if (w25q128jw_read_quad(FLASH_APP_OFFSET + 4 + 68 + 4768, (uint32_t*)SRAM_APP_ADDR, payload_size) != FLASH_OK) {
-        secure_halt("Error de hardware al leer payload de la App de la Flash.");
+        secure_halt();
     }
     
     PRINTF("[FSBL] Descarga completada.\n");
@@ -164,7 +142,7 @@ int main(void) {
     
     for (int i = 0; i < 8; i++) {
         if (xmss_read32(0x20 + (i * 4)) != expected_app_pk_hash[i]) {
-            secure_halt("Clave Publica de la App NO coincide con el Hash esperado en FSBL.");
+            secure_halt();
         }
     }
     
@@ -194,12 +172,10 @@ int main(void) {
 
     // 6. TOMA DE DECISIÓN CRÍTICA
     uint32_t status = xmss_read32(XMSS_STATUS_OFFSET);
-    uint16_t valid_code = (uint16_t)(status & 0xFFFFu);
+    PRINTF("[FSBL] Resultado Verificacion HW: Status = 0x%08X (Codigo: 0x%04X)\n", status, (uint16_t)(status & 0xFFFFu));
 
-    PRINTF("[FSBL] Resultado Verificacion HW: Status = 0x%08X (Codigo: 0x%04X)\n", status, valid_code);
-
-    if (valid_code != SECURE_VALID_CODE) {
-        secure_halt("Firma XMSS de la Aplicacion Invalida o Binario Corrupto.");
+    if ((status & 0xFFFFu) != SECURE_VALID_CODE) {
+        secure_halt();
     }
 
     PRINTF("[FSBL] Exito: Firma de la App validada correctamente por HW.\n");
@@ -211,18 +187,19 @@ int main(void) {
 
     PRINTF("[FSBL] Preparando salto a Aplicacion de Usuario...\n");
     
-    // Hardening: Limpieza de SRAM (Buffer Scrubbing)
-    // Borramos a cero absoluto la clave publica y firma
-    memset((void*)SRAM_AUTH_META_ADDR, 0, 68 + 4768);
+    // Hardening: Limpieza de SRAM (Buffer Scrubbing seguro a 32 bits, anti dead-store elimination)
+    volatile uint32_t *scrub_ptr = (volatile uint32_t *)SRAM_AUTH_META_ADDR;
+    for (uint32_t i = 0; i < (68 + 4768) / sizeof(uint32_t); i++) {
+        scrub_ptr[i] = 0;
+    }
 
     // Sincronizar memoria de instrucciones
     __asm__ volatile ("fence.i");
 
     PRINTF("[FSBL] === INICIANDO APLICACION DE USUARIO (0x00018180) ===\n\n");
     
-    typedef void (*app_entry_t)(void);
-    app_entry_t app_entry = (app_entry_t)(SRAM_APP_ADDR + 0x180);
-    app_entry();
+    // Salto a la aplicación de usuario (0x018180)
+    ((void (*)(void))(SRAM_APP_ADDR + 0x180))();
 
     while(1) { __asm__ volatile("wfi"); }
     return 0;
