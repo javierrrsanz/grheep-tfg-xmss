@@ -64,7 +64,7 @@ PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x18000));
     *(.gnu.warning)
   } >ram0
 
-  .power_manager : ALIGN(4096)
+  .power_manager : ALIGN(4)
   {
      PROVIDE(__power_manager_start = .);
      . += 256;
