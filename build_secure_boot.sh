@@ -42,7 +42,7 @@ sw/tools/signer sw/applications/app_dummy/app.bin sw/applications/app_dummy/app_
 
 echo ""
 echo "=============================================="
-echo "5. Generando Imagen SPI Flash (spiflash.hex)"
+echo "5. Generando Imágenes SPI Flash (.hex y .bin)"
 echo "=============================================="
 python3 sw/tools/combine_flash.py
 
@@ -56,8 +56,9 @@ cp sw/applications/zsbl/spiflash.hex hw/vendor/x-heep/sw/build/main.hex
 
 echo ""
 echo "=============================================="
-echo "7. Comprobando spiflash.hex"
+echo "7. Comprobando spiflash.hex y spiflash.bin"
 echo "=============================================="
 ls -la sw/applications/zsbl/spiflash.hex
+ls -la sw/applications/zsbl/spiflash.bin
 
-echo "TODO LISTO!"
+echo "TODO LISTO PARA SIMULACIÓN Y FPGA FÍSICA!"
