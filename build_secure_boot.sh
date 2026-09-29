@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
+TARGET=${1:-sim}
+
 echo "=============================================="
-echo "0. Limpiando compilaciones previas"
+echo "0. Limpiando compilaciones previas (TARGET=${TARGET})"
 echo "=============================================="
 make clean
 
@@ -14,18 +16,18 @@ gcc -O2 -Isw/applications/xmss_test_sw sw/tools/signer.c sw/applications/xmss_te
 
 echo ""
 echo "=============================================="
-echo "2. Compilando FSBL (Etapa 1)"
+echo "2. Compilando FSBL (Etapa 1 - TARGET=${TARGET})"
 echo "=============================================="
 make -C hw/vendor/x-heep/sw clean
-make app PROJECT=fsbl
+make app PROJECT=fsbl TARGET=$TARGET
 cp hw/vendor/x-heep/sw/build/main.bin sw/applications/fsbl/fsbl.bin
 
 echo ""
 echo "=============================================="
-echo "3. Compilando App (Etapa 2)"
+echo "3. Compilando App (Etapa 2 - TARGET=${TARGET})"
 echo "=============================================="
 make -C hw/vendor/x-heep/sw clean
-make app PROJECT=app_dummy
+make app PROJECT=app_dummy TARGET=$TARGET
 cp hw/vendor/x-heep/sw/build/main.bin sw/applications/app_dummy/app.bin
 
 echo ""
