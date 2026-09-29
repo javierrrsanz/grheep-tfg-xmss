@@ -21,19 +21,17 @@ set_property -dict { PACKAGE_PIN U29   IOSTANDARD LVCMOS33 } [get_ports { exit_v
 set_property -dict { PACKAGE_PIN G25   IOSTANDARD LVCMOS12 } [get_ports { execute_from_flash_i }]; # Sch=sw[1]
 set_property -dict { PACKAGE_PIN G19   IOSTANDARD LVCMOS12 } [get_ports { boot_select_i }]; # Sch=sw[0]
 
-## FLASH - PMOD Header JC
-## PMOD Header JC
-set_property -dict { PACKAGE_PIN AD26  IOSTANDARD LVCMOS33 } [get_ports { spi_flash_csb_o }]; # jc[4]
-set_property -dict { PACKAGE_PIN AC26  IOSTANDARD LVCMOS33 } [get_ports { spi_flash_sck_o }]; # jc[0]
-set_property -dict { PACKAGE_PIN AG30  IOSTANDARD LVCMOS33 } [get_ports { spi_flash_sd_io[0] }]; # jc[5]
-set_property -dict { PACKAGE_PIN AJ27  IOSTANDARD LVCMOS33 } [get_ports { spi_flash_sd_io[1] }]; # jc[1]
-set_property -dict { PACKAGE_PIN AK30  IOSTANDARD LVCMOS33 } [get_ports { spi_flash_sd_io[2] }]; # jc[6]
-set_property -dict { PACKAGE_PIN AH30  IOSTANDARD LVCMOS33 } [get_ports { spi_flash_sd_io[3] }]; # jc[2]
+## On-board QSPI Flash (Spansion S25FL256S)
+set_property -dict { PACKAGE_PIN U19  IOSTANDARD LVCMOS33 } [get_ports { spi_flash_csb_o }]; # QSPI_CSN
+set_property -dict { PACKAGE_PIN AC26 IOSTANDARD LVCMOS33 } [get_ports { spi_flash_sck_o }]; # PMOD JC[0] (Driven also via STARTUPE2 to dedicated CCLK)
+set_property -dict { PACKAGE_PIN P24  IOSTANDARD LVCMOS33 } [get_ports { spi_flash_sd_io[0] }]; # QSPI_DQ0 / MOSI
+set_property -dict { PACKAGE_PIN R25  IOSTANDARD LVCMOS33 } [get_ports { spi_flash_sd_io[1] }]; # QSPI_DQ1 / MISO
+set_property -dict { PACKAGE_PIN R20  IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports { spi_flash_sd_io[2] }]; # QSPI_DQ2 / WP#
+set_property -dict { PACKAGE_PIN R21  IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports { spi_flash_sd_io[3] }]; # QSPI_DQ3 / HOLD#
 
-## PMOD Header JD
-## UART
-set_property -dict { PACKAGE_PIN V27   IOSTANDARD LVCMOS33 } [get_ports { uart_tx_o }]; # jd[0]
-set_property -dict { PACKAGE_PIN U24   IOSTANDARD LVCMOS33 } [get_ports { uart_rx_i }]; # jd[4]
+## On-board USB-UART (FTDI FT232R connected to micro-USB J15)
+set_property -dict { PACKAGE_PIN Y20  IOSTANDARD LVCMOS33 } [get_ports { uart_tx_o }]; # usb_uart_rxd (FTDI input / FPGA TX)
+set_property -dict { PACKAGE_PIN Y23  IOSTANDARD LVCMOS33 } [get_ports { uart_rx_i }]; # usb_uart_txd (FTDI output / FPGA RX)
 
 ## JTAG
 set_property -dict { PACKAGE_PIN Y30   IOSTANDARD LVCMOS33 } [get_ports { jtag_tdi_i }]; # jd[1]

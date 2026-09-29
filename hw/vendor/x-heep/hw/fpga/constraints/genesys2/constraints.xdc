@@ -4,3 +4,9 @@ create_clock -add -name spi_slave_clk_pin -period 20.00 -waveform {0 5} [get_por
 ### Reset Constraints
 set_false_path -from gr_heep_i/core_v_mini_mcu_i/debug_subsystem_i/dm_obi_top_i/i_dm_top/i_dm_csrs/dmcontrol_q_reg\[ndmreset\]/C
 set_false_path -from gr_heep_i/rstgen_i/i_rstgen_bypass/synch_regs_q_reg[3]/C
+
+### Configuration Voltage and QSPI Flash Bitstream Properties
+set_property CFGBVS VCCO [current_design]
+set_property CONFIG_VOLTAGE 3.3 [current_design]
+set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]
+

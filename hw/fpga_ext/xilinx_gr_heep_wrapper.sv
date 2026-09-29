@@ -205,4 +205,26 @@ module xilinx_gr_heep_wrapper
 
   assign exit_value_o = exit_value[0];
 
+`ifdef FPGA_GENESYS2
+  // STARTUPE2 primitive to drive the dedicated CCLK pin of the on-board Spansion S25FL256S Flash
+  STARTUPE2 #(
+      .PROG_USR("FALSE"),
+      .SIM_CCLK_FREQ(0.0)
+  ) startupe2_i (
+      .CFGCLK(),
+      .CFGMCLK(),
+      .EOS(),
+      .PREQ(),
+      .CLK(1'b0),
+      .GSR(1'b0),
+      .GTS(1'b0),
+      .KEYCLEARB(1'b1),
+      .PACK(1'b0),
+      .USRCCLKO(spi_flash_sck_o), // Input from fabric (SPI clock from microcontroller)
+      .USRCCLKTS(1'b0),          // 0 = enable CCLK output pin
+      .USRDONEO(1'b1),
+      .USRDONETS(1'b1)
+  );
+`endif
+
 endmodule
