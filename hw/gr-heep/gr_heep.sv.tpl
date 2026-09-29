@@ -29,13 +29,14 @@ module gr_heep (
       muxed_string = "_muxed" if pad.is_muxed() else ""
       %>\
       % if has_inout_pin or (has_input_pin and has_output_pin):
-        inout wire ${pin0_name}io${"" if loop.last else ","}
+        inout wire ${pin0_name}io,
       % elif has_input_pin:
-        inout wire ${pin0_name}i${"" if loop.last else ","}
+        inout wire ${pin0_name}i,
       % elif has_output_pin:
-        inout wire ${pin0_name}o${"" if loop.last else ","}
+        inout wire ${pin0_name}o,
       % endif
     % endfor
+    output wire spi_flash_sck_o_raw
 );
   import obi_pkg::*;
   import reg_pkg::*;
@@ -374,6 +375,7 @@ module gr_heep (
     assign ext_int_vector[NEXT_INT-1:${gr_heep["ext_interrupts"]}] = '0;
   % endif
   assign exit_value_out_x = exit_value[0];
+  assign spi_flash_sck_o_raw = spi_flash_sck_out_x;
 
   // Pad ring
   // --------

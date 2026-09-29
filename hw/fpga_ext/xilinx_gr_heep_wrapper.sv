@@ -78,6 +78,7 @@ module xilinx_gr_heep_wrapper
   logic [                      31:0] exit_value;
   wire                               rst_n;
   logic [CLK_LED_COUNT_LENGTH - 1:0] clk_count;
+  wire                               spi_flash_sck_raw;
 
   // low active reset
 `ifdef FPGA_NEXYS
@@ -170,6 +171,7 @@ module xilinx_gr_heep_wrapper
     .gpio_12_io(gpio_io[12]),
     .gpio_13_io(gpio_io[13]),
     .spi_flash_sck_io(spi_flash_sck_o),
+    .spi_flash_sck_o_raw(spi_flash_sck_raw),
     .spi_flash_cs_0_io(spi_flash_csb_o),
     .spi_flash_cs_1_io(),
     .spi_flash_sd_0_io(spi_flash_sd_io[0]),
@@ -220,7 +222,7 @@ module xilinx_gr_heep_wrapper
       .GTS(1'b0),
       .KEYCLEARB(1'b1),
       .PACK(1'b0),
-      .USRCCLKO(spi_flash_sck_o), // Input from fabric (SPI clock from microcontroller)
+      .USRCCLKO(spi_flash_sck_raw), // Pure internal fabric clock from microcontroller
       .USRCCLKTS(1'b0),          // 0 = enable CCLK output pin
       .USRDONEO(1'b1),
       .USRDONETS(1'b1)
