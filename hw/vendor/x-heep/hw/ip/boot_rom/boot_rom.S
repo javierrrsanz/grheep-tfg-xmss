@@ -76,7 +76,7 @@ _copy_from_flash:
        lui     a4, UART_START_ADDRESS_20bit
        li      t6, 3
        sw      t6, 0x1c(a4)            // FIFO_CTRL = 3 (RXRST=1, TXRST=1)
-       lui     t6, 0xCCCC0
+       lui     t6, 0x029F0
        ori     t6, t6, 3
        sw      t6, 0x0c(a4)            // CTRL = 0xCCCC0003 (NCO + TX + RX)
 

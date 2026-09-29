@@ -30,8 +30,8 @@ set_property -dict { PACKAGE_PIN R20  IOSTANDARD LVCMOS33 PULLUP TRUE } [get_por
 set_property -dict { PACKAGE_PIN R21  IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports { spi_flash_sd_io[3] }]; # QSPI_DQ3 / HOLD#
 
 ## On-board USB-UART (FTDI FT232R connected to micro-USB J15)
-set_property -dict { PACKAGE_PIN Y20  IOSTANDARD LVCMOS33 } [get_ports { uart_tx_o }]; # usb_uart_rxd (FTDI input / FPGA TX)
-set_property -dict { PACKAGE_PIN Y23  IOSTANDARD LVCMOS33 } [get_ports { uart_rx_i }]; # usb_uart_txd (FTDI output / FPGA RX)
+set_property -dict { PACKAGE_PIN Y23  IOSTANDARD LVCMOS33 } [get_ports { uart_tx_o }]; # uart_rx_out (FPGA TX -> PC RX)
+set_property -dict { PACKAGE_PIN Y20  IOSTANDARD LVCMOS33 } [get_ports { uart_rx_i }]; # uart_tx_in  (PC TX -> FPGA RX)
 
 ## JTAG
 set_property -dict { PACKAGE_PIN Y30   IOSTANDARD LVCMOS33 } [get_ports { jtag_tdi_i }]; # jd[1]
