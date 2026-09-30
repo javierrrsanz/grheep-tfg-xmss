@@ -265,8 +265,8 @@ w25q_error_codes_t w25q128jw_init(spi_host_t* spi_host) {
     // Power up flash
     flash_power_up();
 
-    // Set QE bit (Bypassed because Spansion S25FL256S uses different commands)
-    // if (set_QE_bit() == FLASH_ERROR) return FLASH_ERROR; // Error occurred while setting QE bit
+    // Set QE bit
+    if (set_QE_bit() == FLASH_ERROR) return FLASH_ERROR; // Error occurred while setting QE bit
 
     return FLASH_OK; // Success
 }
@@ -1348,83 +1348,92 @@ static void flash_power_up(void) {
 static w25q_error_codes_t set_QE_bit(void) {
     spi_set_rx_watermark(spi,1);
 
-    // Read Status Register 2
-    const uint32_t reg2_read_cmd = FC_RSR2;
-    spi_write_word(spi, reg2_read_cmd);
+    // Read Configuration Register 1 (CR1)
+    const uint32_t cr1_read_cmd = 0x35;
+    spi_write_word(spi, cr1_read_cmd);
 
-    const uint32_t reg2_read_1 = spi_create_command((spi_command_t){
+    const uint32_t read_1 = spi_create_command((spi_command_t){
         .len        = 0,                 // 1 Byte
         .csaat      = true,              // Command not finished
         .speed      = SPI_SPEED_STANDARD, // Single speed
         .direction  = SPI_DIR_TX_ONLY      // Write only
     });
-    spi_set_command(spi, reg2_read_1);
+    spi_set_command(spi, read_1);
     spi_wait_for_ready(spi);
 
-    const uint32_t reg2_read_2 = spi_create_command((spi_command_t){
+    const uint32_t read_2 = spi_create_command((spi_command_t){
         .len        = 0,                 // 1 Byte
         .csaat      = false,             // End command
         .speed      = SPI_SPEED_STANDARD, // Standard speed
         .direction  = SPI_DIR_RX_ONLY      // Read only
     });
-    spi_set_command(spi, reg2_read_2);
+    spi_set_command(spi, read_2);
     spi_wait_for_ready(spi);
     spi_wait_for_rx_watermark(spi);
 
-    /*
-     * the partial word will be zero-padded and inserted into the RX FIFO once the segment is completed
-     * The actual register is 8 bit, but the SPI host gives a full word
-    */
-    uint32_t reg2_data;
-    spi_read_word(spi, &reg2_data);
+    uint32_t cr1_data = 0;
+    spi_read_word(spi, &cr1_data);
 
-    // Set bit in position 1 (QE bit), leaving the others unchanged
-    reg2_data |= 0x2;
+    // If QE bit (bit 1) is already set, we are done
+    if ((cr1_data & 0x02) != 0) return FLASH_OK;
+
+    // Read Status Register 1 (SR1)
+    const uint32_t sr1_read_cmd = 0x05; // FC_RSR1
+    spi_write_word(spi, sr1_read_cmd);
+    spi_set_command(spi, read_1);
+    spi_wait_for_ready(spi);
+    spi_set_command(spi, read_2);
+    spi_wait_for_ready(spi);
+    spi_wait_for_rx_watermark(spi);
+
+    uint32_t sr1_data = 0;
+    spi_read_word(spi, &sr1_data);
+
+    // Set QE bit (bit 1) in CR1
+    cr1_data |= 0x02;
 
     // Enable write operation
     flash_write_enable();
 
-    // Write Status Register 2 (set QE bit)
-    const uint32_t reg2_write_cmd = FC_WSR2;
-    spi_write_word(spi, reg2_write_cmd);
+    // Write Registers (Command 0x01 writes SR1 then CR1)
+    const uint32_t wrr_cmd = 0x01;
+    spi_write_word(spi, wrr_cmd);
+    
+    // Send command byte
+    spi_set_command(spi, read_1);
+    spi_wait_for_ready(spi);
 
-    const uint32_t reg2_write_1 = spi_create_command((spi_command_t){
+    // Send SR1 byte
+    spi_write_word(spi, sr1_data);
+    spi_set_command(spi, read_1);
+    spi_wait_for_ready(spi);
+
+    // Send CR1 byte
+    spi_write_word(spi, cr1_data);
+    const uint32_t write_end = spi_create_command((spi_command_t){
         .len        = 0,                 // 1 Byte
-        .csaat      = true,              // Command not finished
+        .csaat      = false,             // End command
         .speed      = SPI_SPEED_STANDARD, // Single speed
         .direction  = SPI_DIR_TX_ONLY      // Write only
     });
-    spi_set_command(spi, reg2_write_1);
-    spi_wait_for_ready(spi);
-
-    // Load data to TX FIFO
-    spi_write_word(spi, reg2_data);
-
-    // Create command segment
-    const uint32_t reg2_write_2 = spi_create_command((spi_command_t){
-        .len        = 0,                 // 1 Byte
-        .csaat      = false,             // End command
-        .speed      = SPI_SPEED_STANDARD, // Standard speed
-        .direction  = SPI_DIR_TX_ONLY      // Write only
-    });
-    spi_set_command(spi, reg2_write_2);
+    spi_set_command(spi, write_end);
     spi_wait_for_ready(spi);
 
     // Wait flash to complete write routine
     flash_wait();
 
-    // Read back Status Register 2
-    spi_write_word(spi, reg2_read_cmd);
-    spi_set_command(spi, reg2_read_1);
+    // Read back CR1 to verify
+    spi_write_word(spi, cr1_read_cmd);
+    spi_set_command(spi, read_1);
     spi_wait_for_ready(spi);
-    spi_set_command(spi, reg2_read_2);
+    spi_set_command(spi, read_2);
     spi_wait_for_ready(spi);
     spi_wait_for_rx_watermark(spi);
-    uint32_t reg2_data_check = 0x00;
-    spi_read_word(spi, &reg2_data_check);
+    uint32_t cr1_data_check = 0;
+    spi_read_word(spi, &cr1_data_check);
 
     // Check if the QE bit is set
-    if ((reg2_data_check & 0x2) == 0) return FLASH_ERROR;
+    if ((cr1_data_check & 0x02) == 0) return FLASH_ERROR;
     else return FLASH_OK;
 }
 

@@ -1,6 +1,6 @@
 #include "core_v_mini_mcu.h"
 #include "gpio.h"
-#include <stdio.h>
+
 
 
 // Pines de LEDs de usuario (mapeados a led[4..7] en Genesys 2 y Nexys A7)
@@ -16,7 +16,7 @@ static void delay_step(void) {
 
 int main(void) {
     
-    printf("Hello World from app_dummy\n");
+
 
     // 1. Configurar pines GPIO 5 a 8 como salidas Push-Pull y apagarlos
     for (int i = 0; i < NUM_LEDS; i++) {

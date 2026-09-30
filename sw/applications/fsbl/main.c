@@ -10,7 +10,7 @@
 #include "w25q128jw.h"
 #include "gpio.h"
 
-#define PRINTF_IN_FPGA  1
+#define PRINTF_IN_FPGA  0
 #define PRINTF_IN_SIM   0
 
 #if (TARGET_SIM && PRINTF_IN_SIM) || (PRINTF_IN_FPGA && !TARGET_SIM)
@@ -88,7 +88,7 @@ int main(void) {
     // ========================================================================
     // 2. LECTURA FÍSICA DESDE LA SPI FLASH A LA SRAM
     // ========================================================================
-    PRINTF("[FSBL] Inicializando bus SPI Flash...\n");
+    PRINTF("[FSBL] Inicializando bus quad SPI Flash...\n");
     
     if (w25q128jw_init(spi_flash) != FLASH_OK) {
         secure_halt();
