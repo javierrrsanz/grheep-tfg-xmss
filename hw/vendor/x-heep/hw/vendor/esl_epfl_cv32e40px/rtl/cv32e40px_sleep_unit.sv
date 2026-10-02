@@ -123,7 +123,10 @@ module cv32e40px_sleep_unit #(
       assign core_busy_d = if_busy_i || ctrl_busy_i || lsu_busy_i || apu_busy_i;
 
       // Enable the clock only after the initial fetch enable while busy or waking up to become busy
-      assign clock_en = fetch_enable_q && (wake_from_sleep_i || core_busy_q);
+      // assign clock_en = fetch_enable_q && (wake_from_sleep_i || core_busy_q);
+      
+      // BENCHMARKING: keep clock enabled in WFI so mcycle accurately counts accelerator cycles
+      assign clock_en = fetch_enable_q;
 
       // Sleep only in response to WFI which leads to clock disable; debug_wfi_no_sleep_o in
       // cv32e40px_controller determines the scenarios for which WFI can(not) cause sleep.

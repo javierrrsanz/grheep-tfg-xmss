@@ -38,12 +38,13 @@ PADS_CFG_FPGA		?= $(ROOT_DIR)/config/gr-heep_pad_cfg.py  # Currently the same as
 EXTERNAL_DOMAINS	:= 0 # TO BE UPDATED according to the number of external domains. FIXME: move to mcu-gen
 
 ifeq ($(TARGET),asic)
-	PADS_CFG := $(PADS_CFG_ASIC)
-else ifeq ($(filter $(TARGET),pynq-z2 nexys-a7-100t genesys2 aup-zu3 zcu102 zcu104),$(TARGET))
-	PADS_CFG := $(PADS_CFG_FPGA)
+    PADS_CFG := $(PADS_CFG_ASIC)
+else ifeq ($(filter $(TARGET),pynq-z2 nexys-a7-100t genesys2 aup-zu3 zcu102 zcu104 sim),$(TARGET))
+    PADS_CFG := $(PADS_CFG_FPGA)
 else
-	$(error ### ERROR: Unsupported target implementation: $(TARGET))
+    $(error ### ERROR: Unsupported target implementation: $(TARGET))
 endif
+
 
 # Verilog format and linting variables
 RTL_FILES := $(wildcard hw/gr-heep/*.sv)

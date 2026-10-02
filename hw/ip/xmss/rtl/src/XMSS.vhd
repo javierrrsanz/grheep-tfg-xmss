@@ -21,6 +21,7 @@ entity XMSS is
         -- Salidas de Estado
         done        : out std_logic;
         valid       : out std_logic_vector(15 downto 0);
+        mode_select_out : out std_logic_vector(1 downto 0);
 
         -- Interfaz Memoria Externa (Lectura 256-bit hacia el Wrapper OBI)
         mem_req     : out std_logic;
@@ -74,6 +75,7 @@ begin
     -- Salidas del Top
     done  <= vrfy_out.done;
     valid <= vrfy_out.valid;
+    mode_select_out <= std_logic_vector(vrfy_out.mode_select_l1);
 
     -- Entradas al orquestador
     vrfy_in.enable       <= enable;

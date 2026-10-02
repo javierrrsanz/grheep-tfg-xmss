@@ -8,10 +8,10 @@
 #include "fast_intr_ctrl.h"
 #include "spi_sdk.h"
 #include "w25q128jw.h"
-#include "gpio.h"
+//#include "gpio.h"
 
 #define PRINTF_IN_FPGA  0
-#define PRINTF_IN_SIM   0
+#define PRINTF_IN_SIM   1
 
 #if (TARGET_SIM && PRINTF_IN_SIM) || (PRINTF_IN_FPGA && !TARGET_SIM)
     #include <stdio.h>
@@ -69,9 +69,9 @@ void secure_halt(void) {
 int main(void) {
 
     // Chivato visual: Encender LED 4 (GPIO 5) para confirmar arranque del FSBL
-    gpio_cfg_t led_cfg = {.pin = 5, .mode = GpioModeOutPushPull};
-    gpio_config(led_cfg);
-    gpio_write(5, true);
+    // gpio_cfg_t led_cfg = {.pin = 5, .mode = GpioModeOutPushPull};
+    // gpio_config(led_cfg);
+    // gpio_write(5, true);
 
     PRINTF("\n==============================================\n");
     PRINTF("---    X-HEEP FSBL (ETAPA 1 - SRAM)        ---\n");

@@ -60,6 +60,14 @@ architecture Behavioral of xheep_wrapper is
     signal xmss_mem_addr : std_logic_vector(31 downto 0);
     signal xmss_mem_gnt  : std_logic;
     signal xmss_mem_rvalid : std_logic;
+    signal mode_select_out : std_logic_vector(1 downto 0);
+    
+    -- Contadores de Rendimiento
+    signal is_running : std_logic := '0';
+    signal reg_dma_cycles : std_logic_vector(31 downto 0) := (others => '0');
+    signal reg_hash_msg_cycles : std_logic_vector(31 downto 0) := (others => '0');
+    signal reg_wots_cycles : std_logic_vector(31 downto 0) := (others => '0');
+    signal reg_tree_cycles : std_logic_vector(31 downto 0) := (others => '0');
 
     -- Señales del DMA interno bajo demanda
     signal mem_req      : std_logic;
@@ -166,6 +174,13 @@ begin
                 when x"34" => reg_rdata_c <= hash_result(95 downto 64);
                 when x"38" => reg_rdata_c <= hash_result(63 downto 32);
                 when x"3C" => reg_rdata_c <= hash_result(31 downto 0);
+                
+                -- Contadores de rendimiento
+                when x"40" => reg_rdata_c <= reg_dma_cycles;
+                when x"44" => reg_rdata_c <= reg_hash_msg_cycles;
+                when x"48" => reg_rdata_c <= reg_wots_cycles;
+                when x"4C" => reg_rdata_c <= reg_tree_cycles;
+                
                 when others => reg_rdata_c <= (others => '0');
             end case;
         end if;
@@ -372,7 +387,40 @@ begin
             mem_addr    => xmss_mem_addr,
             mem_gnt     => xmss_mem_gnt,
             mem_rvalid  => xmss_mem_rvalid,
-            mem_rdata   => mem_rdata
+            mem_rdata   => mem_rdata,
+            mode_select_out => mode_select_out
         );
+    -- 5. LÓGICA DE CONTADORES DE RENDIMIENTO
+    process(clk, rst_ni)
+    begin
+        if rst_ni = '0' then
+            is_running <= '0';
+            reg_dma_cycles <= (others => '0');
+            reg_hash_msg_cycles <= (others => '0');
+            reg_wots_cycles <= (others => '0');
+            reg_tree_cycles <= (others => '0');
+        elsif rising_edge(clk) then
+            if reg_ctrl(0) = '1' then
+                is_running <= '1';
+                reg_dma_cycles <= (others => '0');
+                reg_hash_msg_cycles <= (others => '0');
+                reg_wots_cycles <= (others => '0');
+                reg_tree_cycles <= (others => '0');
+            elsif xmss_done = '1' then
+                is_running <= '0';
+            elsif is_running = '1' then
+                if dma_state /= S_IDLE then
+                    reg_dma_cycles <= std_logic_vector(unsigned(reg_dma_cycles) + 1);
+                else
+                    case mode_select_out is
+                        when "10" => reg_hash_msg_cycles <= std_logic_vector(unsigned(reg_hash_msg_cycles) + 1);
+                        when "01" => reg_wots_cycles <= std_logic_vector(unsigned(reg_wots_cycles) + 1);
+                        when "11" | "00" => reg_tree_cycles <= std_logic_vector(unsigned(reg_tree_cycles) + 1);
+                        when others => null;
+                    end case;
+                end if;
+            end if;
+        end if;
+    end process;
 
 end Behavioral;

@@ -1,7 +1,6 @@
 #include "core_v_mini_mcu.h"
 #include "gpio.h"
-
-
+#include <stdio.h>
 
 // Pines de LEDs de usuario (mapeados a led[4..7] en Genesys 2 y Nexys A7)
 static const int leds[] = {5, 6, 7, 8};
@@ -15,6 +14,8 @@ static void delay_step(void) {
 }
 
 int main(void) {
+
+    printf("Hello World from App Dummy\n");
     
 
 

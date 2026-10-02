@@ -29,13 +29,16 @@
 
 #define SECURE_VALID_CODE                  0x3C5A
 
-#define ZSBL_UART_ENABLE                   0
+#define ZSBL_UART_ENABLE                   1
 
 #define SEXT_IMM(x) ((x) | (-(((x) >> 11) & 1) << 11))
 
        .global entry
 
 entry:
+       // Enable performance counters (mcycle, minstret) by clearing mcountinhibit (0x320)
+       csrw    0x320, zero
+
        // Check if recovering from sleep state
        lui     a1, POWER_MANAGER_START_ADDRESS_20bit
        lbu     a0, POWER_MANAGER_WAKEUP_STATE_REG_OFFSET(a1)
@@ -71,12 +74,17 @@ _execute_from_flash:
 
 _copy_from_flash:
 
+       // BENCHMARK: STAGE 0 START
+       li      t0, 0x00007E00
+       csrr    t1, mcycle
+       sw      t1, 0(t0)
+
 #if ZSBL_UART_ENABLE
        // 1. Inicializar UART una sola vez (Reset FIFO y NCO=0xCCCC para 5MBaud)
        lui     a4, UART_START_ADDRESS_20bit
        li      t6, 3
        sw      t6, 0x1c(a4)            // FIFO_CTRL = 3 (RXRST=1, TXRST=1)
-       lui     t6, 0x029F0
+       lui     t6, 0xCCCC0
        ori     t6, t6, 3
        sw      t6, 0x0c(a4)            // CTRL = 0xCCCC0003 (NCO + TX + RX)
 
@@ -177,8 +185,14 @@ _wait_spi_hdr_data:
        li      s4, 0                   // Fin de transacción SPI (csaat=0 en último chunk)
        jal     ra, _read_bytes_block
 
+       // BENCHMARK: AFTER SPI
+       li      t0, 0x00007E00
+       csrr    t1, mcycle
+       sw      t1, 4(t0)
+
        // -------------------------------------------------------------
        // 4. AUTENTICACIÓN DE LA CLAVE PÚBLICA (RoTPK) EN HARDWARE
+
        // -------------------------------------------------------------
        lui     a2, XMSS_PERIPH_START_ADDRESS_20bit
 
@@ -218,6 +232,11 @@ _check_hash_word:
        addi    t2, t2, -1
        bnez    t2, _check_hash_word
 
+       // BENCHMARK: AFTER RoTPK
+       li      t0, 0x00007E00
+       csrr    t1, mcycle
+       sw      t1, 8(t0)
+
 #if ZSBL_UART_ENABLE
        // RoTPK Valida
        la      a0, msg_rotpk_ok
@@ -253,6 +272,19 @@ _wait_xmss_done:
        andi    t1, t1, 1
        beqz    t1, _wait_xmss_done
 
+       // BENCHMARK: AFTER XMSS & HW COUNTERS
+       li      t1, 0x00007E00
+       csrr    t2, mcycle
+       sw      t2, 12(t1)
+       lw      t2, 0x40(a2)
+       sw      t2, 16(t1)
+       lw      t2, 0x44(a2)
+       sw      t2, 20(t1)
+       lw      t2, 0x48(a2)
+       sw      t2, 24(t1)
+       lw      t2, 0x4C(a2)
+       sw      t2, 28(t1)
+
        // Verificar código de validez (bits 15:0 == 0x3C5A)
        li      t2, SECURE_VALID_CODE
        slli    t3, t0, 16
@@ -276,6 +308,11 @@ _wait_xmss_done:
        fence.i
        lui     a0, 0
        addi    a0, a0, 0x180
+
+       // BENCHMARK: END ZSBL
+       li      t0, 0x00007E00
+       csrr    t1, mcycle
+       sw      t1, 32(t0)
 
        // Hardening: Limpiar todos los registros de CPU (excepto a0)
        // para evitar filtración de metadatos o fragmentos de claves/hashes
