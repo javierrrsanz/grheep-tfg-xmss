@@ -97,7 +97,7 @@ architecture Behavioral of xheep_wrapper is
 
 begin
 
-    xmss_rst_high <= not rst_ni;
+    xmss_rst_high <= '1' when (rst_ni = '0' or reg_ctrl(3) = '1') else '0';
     full_word_write <= '1' when reg_wstrb = "1111" else '0';
 
     -- MUX DMA
@@ -131,6 +131,11 @@ begin
             -- Autoclear del bit de START HASH
             if reg_ctrl(2) = '1' then
                 reg_ctrl(2) <= '0';
+            end if;
+
+            -- Autoclear del bit de SOFTWARE RESET
+            if reg_ctrl(3) = '1' then
+                reg_ctrl(3) <= '0';
             end if;
 
             if reg_req = '1' and reg_we = '1' and full_word_write = '1' then
@@ -185,31 +190,38 @@ begin
             latched_valid <= (others => '0');
             hash_enable <= '0';
         elsif rising_edge(clk) then
-            if reg_ctrl(0) = '1' then
-                xmss_enable <= '1';
-                latched_done <= '0';
+            if reg_ctrl(3) = '1' then
+                xmss_enable   <= '0';
+                hash_enable   <= '0';
+                latched_done  <= '0';
                 latched_valid <= (others => '0');
-            end if;
+            else
+                if reg_ctrl(0) = '1' then
+                    xmss_enable <= '1';
+                    latched_done <= '0';
+                    latched_valid <= (others => '0');
+                end if;
 
-            if reg_ctrl(2) = '1' then
-                hash_enable <= '1';
-                latched_done <= '0';
-            end if;
+                if reg_ctrl(2) = '1' then
+                    hash_enable <= '1';
+                    latched_done <= '0';
+                end if;
 
-            -- NUEVO: La CPU apaga la interrupción (Bit 1)
-            if reg_ctrl(1) = '1' then
-                latched_done <= '0';
-            end if;
+                -- NUEVO: La CPU apaga la interrupción (Bit 1)
+                if reg_ctrl(1) = '1' then
+                    latched_done <= '0';
+                end if;
 
-            if xmss_done = '1' then
-                xmss_enable <= '0';
-                latched_done <= '1';
-                latched_valid <= xmss_valid;
-            end if;
-            
-            if hash_done = '1' then
-                hash_enable <= '0';
-                latched_done <= '1';
+                if xmss_done = '1' then
+                    xmss_enable <= '0';
+                    latched_done <= '1';
+                    latched_valid <= xmss_valid;
+                end if;
+                
+                if hash_done = '1' then
+                    hash_enable <= '0';
+                    latched_done <= '1';
+                end if;
             end if;
         end if;
     end process;
@@ -230,44 +242,56 @@ begin
             hash_done <= '0';
             hash_result <= (others => '0');
         elsif rising_edge(clk) then
-            hash_done <= '0';
-            absorb_in.enable <= '0';
+            if reg_ctrl(3) = '1' then
+                hash_state <= H_IDLE;
+                hash_mem_req <= '0';
+                hash_addr_offset <= (others => '0');
+                absorb_in.enable <= '0';
+                absorb_in.halt <= '0';
+                absorb_in.len <= 0;
+                absorb_in.input <= (others => '0');
+                hash_done <= '0';
+                hash_result <= (others => '0');
+            else
+                hash_done <= '0';
+                absorb_in.enable <= '0';
 
-            case hash_state is
-                when H_IDLE =>
-                    if hash_enable = '1' then
-                        hash_state <= H_REQ;
-                        hash_addr_offset <= (others => '0');
-                        absorb_in.len <= to_integer(unsigned(reg_mlen));
-                        hash_mem_req <= '1';
-                        hash_mem_addr <= std_logic_vector(unsigned(reg_pk_addr));
-                        absorb_in.halt <= '1'; -- Congelar SHA mientras traemos primeros 32B
-                    end if;
-                when H_REQ =>
-                    if hash_mem_gnt = '1' then
-                        hash_mem_req <= '0';
-                        hash_state <= H_WAIT_DMA;
-                    end if;
-                when H_WAIT_DMA =>
-                    if hash_mem_rvalid = '1' then
-                        absorb_in.input <= mem_rdata;
-                        absorb_in.enable <= '1';
-                        absorb_in.halt <= '0'; -- Liberar SHA ahora que tenemos datos
-                        hash_state <= H_WAIT_SHA;
-                    end if;
-                when H_WAIT_SHA =>
-                    if absorb_out.mnext = '1' then
-                        hash_addr_offset <= hash_addr_offset + 32;
-                        hash_mem_req <= '1';
-                        hash_mem_addr <= std_logic_vector(unsigned(reg_pk_addr) + hash_addr_offset + 32);
-                        absorb_in.halt <= '1'; -- Congelar SHA mientras pedimos siguientes 32B
-                        hash_state <= H_REQ;
-                    elsif absorb_out.done = '1' then
-                        hash_result <= absorb_out.o;
-                        hash_done <= '1';
-                        hash_state <= H_IDLE;
-                    end if;
-            end case;
+                case hash_state is
+                    when H_IDLE =>
+                        if hash_enable = '1' then
+                            hash_state <= H_REQ;
+                            hash_addr_offset <= (others => '0');
+                            absorb_in.len <= to_integer(unsigned(reg_mlen));
+                            hash_mem_req <= '1';
+                            hash_mem_addr <= std_logic_vector(unsigned(reg_pk_addr));
+                            absorb_in.halt <= '1'; -- Congelar SHA mientras traemos primeros 32B
+                        end if;
+                    when H_REQ =>
+                        if hash_mem_gnt = '1' then
+                            hash_mem_req <= '0';
+                            hash_state <= H_WAIT_DMA;
+                        end if;
+                    when H_WAIT_DMA =>
+                        if hash_mem_rvalid = '1' then
+                            absorb_in.input <= mem_rdata;
+                            absorb_in.enable <= '1';
+                            absorb_in.halt <= '0'; -- Liberar SHA ahora que tenemos datos
+                            hash_state <= H_WAIT_SHA;
+                        end if;
+                    when H_WAIT_SHA =>
+                        if absorb_out.mnext = '1' then
+                            hash_addr_offset <= hash_addr_offset + 32;
+                            hash_mem_req <= '1';
+                            hash_mem_addr <= std_logic_vector(unsigned(reg_pk_addr) + hash_addr_offset + 32);
+                            absorb_in.halt <= '1'; -- Congelar SHA mientras pedimos siguientes 32B
+                            hash_state <= H_REQ;
+                        elsif absorb_out.done = '1' then
+                            hash_result <= absorb_out.o;
+                            hash_done <= '1';
+                            hash_state <= H_IDLE;
+                        end if;
+                end case;
+            end if;
         end if;
     end process;
     
@@ -302,57 +326,66 @@ begin
             base_addr <= (others => '0');
             mem_rvalid <= '0';
         elsif rising_edge(clk) then
-            mem_rvalid <= '0'; -- Pulso por defecto a 0
+            if reg_ctrl(3) = '1' then
+                dma_state <= S_IDLE;
+                obi_req_o <= '0';
+                dma_word_idx <= 0;
+                buffer_256 <= (others => '0');
+                base_addr <= (others => '0');
+                mem_rvalid <= '0';
+            else
+                mem_rvalid <= '0'; -- Pulso por defecto a 0
 
-            case dma_state is
-                when S_IDLE =>
-                    if mem_req = '1' then
-                        base_addr <= unsigned(mem_addr);
-                        dma_word_idx <= 0;
-                        buffer_256 <= (others => '0');
-                        dma_state <= S_REQ_WORD;
-                    end if;
-
-                when S_REQ_WORD =>
-                    obi_req_o <= '1';
-                    obi_addr_o <= std_logic_vector(base_addr + to_unsigned(dma_word_idx * 4, 32));
-                    if obi_gnt_i = '1' then
-                        obi_req_o <= '0';
-                        dma_state <= S_WAIT_WORD;
-                    end if;
-
-                when S_WAIT_WORD =>
-                    if obi_rvalid_i = '1' then
-                        -- Llenamos el buffer en orden Big Endian
-                        case dma_word_idx is
-                            when 0 => buffer_256(255 downto 224) <= rdata_swapped;
-                            when 1 => buffer_256(223 downto 192) <= rdata_swapped;
-                            when 2 => buffer_256(191 downto 160) <= rdata_swapped;
-                            when 3 => buffer_256(159 downto 128) <= rdata_swapped;
-                            when 4 => buffer_256(127 downto 96)  <= rdata_swapped;
-                            when 5 => buffer_256(95 downto 64)   <= rdata_swapped;
-                            when 6 => buffer_256(63 downto 32)   <= rdata_swapped;
-                            when 7 => buffer_256(31 downto 0)    <= rdata_swapped;
-                            when others => null;
-                        end case;
-
-                        if dma_word_idx = 7 then
-                            dma_state <= S_VALID_OUT;
-                        else
-                            dma_word_idx <= dma_word_idx + 1;
+                case dma_state is
+                    when S_IDLE =>
+                        if mem_req = '1' then
+                            base_addr <= unsigned(mem_addr);
+                            dma_word_idx <= 0;
+                            buffer_256 <= (others => '0');
                             dma_state <= S_REQ_WORD;
                         end if;
-                    end if;
 
-                when S_VALID_OUT =>
-                    -- Enviamos el pulso de dato listo al XMSS
-                    mem_rvalid <= '1';
-                    mem_rdata <= buffer_256;
-                    dma_state <= S_IDLE;
+                    when S_REQ_WORD =>
+                        obi_req_o <= '1';
+                        obi_addr_o <= std_logic_vector(base_addr + to_unsigned(dma_word_idx * 4, 32));
+                        if obi_gnt_i = '1' then
+                            obi_req_o <= '0';
+                            dma_state <= S_WAIT_WORD;
+                        end if;
 
-                when others =>
-                    dma_state <= S_IDLE;
-            end case;
+                    when S_WAIT_WORD =>
+                        if obi_rvalid_i = '1' then
+                            -- Llenamos el buffer en orden Big Endian
+                            case dma_word_idx is
+                                when 0 => buffer_256(255 downto 224) <= rdata_swapped;
+                                when 1 => buffer_256(223 downto 192) <= rdata_swapped;
+                                when 2 => buffer_256(191 downto 160) <= rdata_swapped;
+                                when 3 => buffer_256(159 downto 128) <= rdata_swapped;
+                                when 4 => buffer_256(127 downto 96)  <= rdata_swapped;
+                                when 5 => buffer_256(95 downto 64)   <= rdata_swapped;
+                                when 6 => buffer_256(63 downto 32)   <= rdata_swapped;
+                                when 7 => buffer_256(31 downto 0)    <= rdata_swapped;
+                                when others => null;
+                            end case;
+
+                            if dma_word_idx = 7 then
+                                dma_state <= S_VALID_OUT;
+                            else
+                                dma_word_idx <= dma_word_idx + 1;
+                                dma_state <= S_REQ_WORD;
+                            end if;
+                        end if;
+
+                    when S_VALID_OUT =>
+                        -- Enviamos el pulso de dato listo al XMSS
+                        mem_rvalid <= '1';
+                        mem_rdata <= buffer_256;
+                        dma_state <= S_IDLE;
+
+                    when others =>
+                        dma_state <= S_IDLE;
+                end case;
+            end if;
         end if;
     end process;
 

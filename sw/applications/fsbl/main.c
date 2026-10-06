@@ -125,6 +125,9 @@ int main(void) {
     // 3. VALIDACIÓN DE LA CLAVE PÚBLICA DE LA APP POR HARDWARE (HASH_ONLY)
     // ========================================================================
     PRINTF("[FSBL] Validando Clave Publica de la App contra Hash esperado en FSBL...\n");
+
+    // Reset defensivo del acelerador por software
+    xmss_write32(XMSS_CTRL_OFFSET, 0x08);
     
     xmss_write32(XMSS_PK_ADDR_OFFSET, pk_ptr);
     xmss_write32(XMSS_MLEN_OFFSET, 68 * 8); // 544 bits

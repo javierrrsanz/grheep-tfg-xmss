@@ -263,6 +263,10 @@ _wait_xmss_done:
        li      t0, 0x02
        sw      t0, XMSS_CTRL_OFFSET(a2)
 
+// Software Reset del acelerador para dejar el hardware en estado limpio para FSBL: CTRL = 0x08
+       li      t0, 0x08
+       sw      t0, XMSS_CTRL_OFFSET(a2)
+
 #if ZSBL_UART_ENABLE
        // Firma XMSS Valida
        la      a0, msg_xmss_ok
