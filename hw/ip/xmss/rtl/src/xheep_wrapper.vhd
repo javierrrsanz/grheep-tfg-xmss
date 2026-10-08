@@ -95,68 +95,94 @@ architecture Behavioral of xheep_wrapper is
     signal hash_state : hash_state_type := H_IDLE;
     signal hash_addr_offset : unsigned(31 downto 0) := (others => '0');
 
+    -- Contadores de Ciclos para Benchmarking
+    signal xmss_stage : std_logic_vector(1 downto 0);
+    signal cnt_dma    : unsigned(31 downto 0) := (others => '0');
+    signal cnt_hash   : unsigned(31 downto 0) := (others => '0');
+    signal cnt_wots   : unsigned(31 downto 0) := (others => '0');
+    signal cnt_tree   : unsigned(31 downto 0) := (others => '0');
+
+    -- Hardening: Hardware Lockdown (Sticky Bit)
+    signal reg_locked : std_logic := '0';
+
 begin
 
-    xmss_rst_high <= '1' when (rst_ni = '0' or reg_ctrl(3) = '1') else '0';
+    xmss_rst_high <= '1' when (rst_ni = '0' or reg_ctrl(3) = '1' or reg_locked = '1') else '0';
     full_word_write <= '1' when reg_wstrb = "1111" else '0';
 
-    -- MUX DMA
-    mem_req <= xmss_mem_req when hash_enable = '0' else hash_mem_req;
+    -- MUX DMA con aislamiento de bus por Hardware Lockdown (Compatible VHDL-93)
+    mem_req <= '0'          when reg_locked = '1' else
+               xmss_mem_req when hash_enable = '0' else
+               hash_mem_req;
     mem_addr <= xmss_mem_addr when hash_enable = '0' else hash_mem_addr;
-    xmss_mem_gnt <= mem_gnt when hash_enable = '0' else '0';
-    xmss_mem_rvalid <= mem_rvalid when hash_enable = '0' else '0';
-    hash_mem_gnt <= mem_gnt when hash_enable = '1' else '0';
-    hash_mem_rvalid <= mem_rvalid when hash_enable = '1' else '0';
+    xmss_mem_gnt <= mem_gnt when (hash_enable = '0' and reg_locked = '0') else '0';
+    xmss_mem_rvalid <= mem_rvalid when (hash_enable = '0' and reg_locked = '0') else '0';
+    hash_mem_gnt <= mem_gnt when (hash_enable = '1' and reg_locked = '0') else '0';
+    hash_mem_rvalid <= mem_rvalid when (hash_enable = '1' and reg_locked = '0') else '0';
 
     -- 1. ESCLAVO DE CONFIGURACIÓN (RISC-V escribe aquí)
     process(clk, rst_ni)
     begin
         if rst_ni = '0' then
+            reg_locked   <= '0';
             reg_ctrl     <= (others => '0');
             reg_sig_addr <= (others => '0');
             reg_msg_addr <= (others => '0');
             reg_mlen     <= (others => '0');
             reg_pk_addr  <= (others => '0');
         elsif rising_edge(clk) then
-            -- Autoclear del bit de START
-            if reg_ctrl(0) = '1' then
-                reg_ctrl(0) <= '0';
-            end if;
+            -- Si está bloqueado por hardware (Lockdown), se ignoran absolutamente todas las escrituras
+            if reg_locked = '0' then
+                -- Autoclear del bit de START
+                if reg_ctrl(0) = '1' then
+                    reg_ctrl(0) <= '0';
+                end if;
 
-            -- NUEVO: Auto-apaga el botón de ACK
-            if reg_ctrl(1) = '1' then
-                reg_ctrl(1) <= '0'; 
-            end if;
+                -- NUEVO: Auto-apaga el botón de ACK
+                if reg_ctrl(1) = '1' then
+                    reg_ctrl(1) <= '0'; 
+                end if;
 
-            -- Autoclear del bit de START HASH
-            if reg_ctrl(2) = '1' then
-                reg_ctrl(2) <= '0';
-            end if;
+                -- Autoclear del bit de START HASH
+                if reg_ctrl(2) = '1' then
+                    reg_ctrl(2) <= '0';
+                end if;
 
-            -- Autoclear del bit de SOFTWARE RESET
-            if reg_ctrl(3) = '1' then
-                reg_ctrl(3) <= '0';
-            end if;
+                -- Autoclear del bit de SOFTWARE RESET
+                if reg_ctrl(3) = '1' then
+                    reg_ctrl(3) <= '0';
+                end if;
 
-            if reg_req = '1' and reg_we = '1' and full_word_write = '1' then
-                case reg_addr(7 downto 0) is
-                    when x"00" => reg_ctrl     <= reg_wdata;
-                    when x"08" => reg_sig_addr <= reg_wdata;
-                    when x"10" => reg_msg_addr <= reg_wdata;
-                    when x"14" => reg_mlen     <= reg_wdata;
-                    when x"18" => reg_pk_addr  <= reg_wdata; -- Nueva dirección (Offset 0x18)
-                    when others => null;
-                end case;
+                if reg_req = '1' and reg_we = '1' and full_word_write = '1' then
+                    case reg_addr(7 downto 0) is
+                        when x"00" => 
+                            reg_ctrl <= reg_wdata;
+                            -- Bit 31: Sticky Lock Bit (Inversión irreversible hasta reset físico)
+                            if reg_wdata(31) = '1' then
+                                reg_locked   <= '1';
+                                reg_ctrl     <= (others => '0');
+                                reg_sig_addr <= (others => '0');
+                                reg_msg_addr <= (others => '0');
+                                reg_mlen     <= (others => '0');
+                                reg_pk_addr  <= (others => '0');
+                            end if;
+                        when x"08" => reg_sig_addr <= reg_wdata;
+                        when x"10" => reg_msg_addr <= reg_wdata;
+                        when x"14" => reg_mlen     <= reg_wdata;
+                        when x"18" => reg_pk_addr  <= reg_wdata;
+                        when others => null;
+                    end case;
+                end if;
             end if;
         end if;
     end process;
 
-    process(reg_req, reg_we, reg_addr, reg_ctrl, latched_done, latched_valid, reg_sig_addr, reg_msg_addr, reg_mlen, reg_pk_addr)
+    process(reg_req, reg_we, reg_addr, reg_ctrl, reg_locked, latched_done, latched_valid, reg_sig_addr, reg_msg_addr, reg_mlen, reg_pk_addr)
     begin
         reg_rdata_c <= (others => '0');
         if reg_req = '1' and reg_we = '0' then
             case reg_addr(7 downto 0) is
-                when x"00" => reg_rdata_c <= reg_ctrl;
+                when x"00" => reg_rdata_c <= reg_locked & reg_ctrl(30 downto 0);
                 when x"04" => reg_rdata_c <= (31 downto 17 => '0') & latched_done & latched_valid;
                 when x"08" => reg_rdata_c <= reg_sig_addr;
                 when x"10" => reg_rdata_c <= reg_msg_addr;
@@ -171,6 +197,11 @@ begin
                 when x"34" => reg_rdata_c <= hash_result(95 downto 64);
                 when x"38" => reg_rdata_c <= hash_result(63 downto 32);
                 when x"3C" => reg_rdata_c <= hash_result(31 downto 0);
+                -- Contadores de Rendimiento / Benchmarking
+                when x"40" => reg_rdata_c <= std_logic_vector(cnt_dma);
+                when x"44" => reg_rdata_c <= std_logic_vector(cnt_hash);
+                when x"48" => reg_rdata_c <= std_logic_vector(cnt_wots);
+                when x"4C" => reg_rdata_c <= std_logic_vector(cnt_tree);
                 when others => reg_rdata_c <= (others => '0');
             end case;
         end if;
@@ -189,17 +220,29 @@ begin
             latched_done <= '0';
             latched_valid <= (others => '0');
             hash_enable <= '0';
+            cnt_dma  <= (others => '0');
+            cnt_hash <= (others => '0');
+            cnt_wots <= (others => '0');
+            cnt_tree <= (others => '0');
         elsif rising_edge(clk) then
-            if reg_ctrl(3) = '1' then
+            if reg_ctrl(3) = '1' or reg_locked = '1' then
                 xmss_enable   <= '0';
                 hash_enable   <= '0';
                 latched_done  <= '0';
                 latched_valid <= (others => '0');
+                cnt_dma  <= (others => '0');
+                cnt_hash <= (others => '0');
+                cnt_wots <= (others => '0');
+                cnt_tree <= (others => '0');
             else
                 if reg_ctrl(0) = '1' then
                     xmss_enable <= '1';
                     latched_done <= '0';
                     latched_valid <= (others => '0');
+                    cnt_dma  <= (others => '0');
+                    cnt_hash <= (others => '0');
+                    cnt_wots <= (others => '0');
+                    cnt_tree <= (others => '0');
                 end if;
 
                 if reg_ctrl(2) = '1' then
@@ -210,6 +253,21 @@ begin
                 -- NUEVO: La CPU apaga la interrupción (Bit 1)
                 if reg_ctrl(1) = '1' then
                     latched_done <= '0';
+                end if;
+
+                -- Conteo de ciclos por etapa mientras el acelerador está activo
+                if xmss_enable = '1' and xmss_done = '0' then
+                    if dma_state /= S_IDLE then
+                        cnt_dma <= cnt_dma + 1;
+                    else
+                        if xmss_stage = "10" then
+                            cnt_hash <= cnt_hash + 1;
+                        elsif xmss_stage = "01" then
+                            cnt_wots <= cnt_wots + 1;
+                        elsif xmss_stage = "11" then
+                            cnt_tree <= cnt_tree + 1;
+                        end if;
+                    end if;
                 end if;
 
                 if xmss_done = '1' then
@@ -398,10 +456,11 @@ begin
             mlen        => reg_mlen,
             sig_base    => reg_sig_addr,
             msg_base    => reg_msg_addr,
-            pk_base     => reg_pk_addr, -- Usamos el nuevo registro configurado en C
-            done        => xmss_done,
-            valid       => xmss_valid,
-            mem_req     => xmss_mem_req,
+            pk_base      => reg_pk_addr, -- Usamos el nuevo registro configurado en C
+            done         => xmss_done,
+            valid        => xmss_valid,
+            stage_select => xmss_stage,
+            mem_req      => xmss_mem_req,
             mem_addr    => xmss_mem_addr,
             mem_gnt     => xmss_mem_gnt,
             mem_rvalid  => xmss_mem_rvalid,

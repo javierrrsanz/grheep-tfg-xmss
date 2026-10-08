@@ -19,8 +19,9 @@ entity XMSS is
         pk_base     : in  std_logic_vector(31 downto 0);
         
         -- Salidas de Estado
-        done        : out std_logic;
-        valid       : out std_logic_vector(15 downto 0);
+        done         : out std_logic;
+        valid        : out std_logic_vector(15 downto 0);
+        stage_select : out std_logic_vector(1 downto 0);
 
         -- Interfaz Memoria Externa (Lectura 256-bit hacia el Wrapper OBI)
         mem_req     : out std_logic;
@@ -72,8 +73,9 @@ begin
     inst_hash_core   : entity work.hash_core_collection port map(clk => clk, reset => reset, d => hash_in, q => hash_out);
 
     -- Salidas del Top
-    done  <= vrfy_out.done;
-    valid <= vrfy_out.valid;
+    done         <= vrfy_out.done;
+    valid        <= vrfy_out.valid;
+    stage_select <= std_logic_vector(vrfy_out.mode_select_l1);
 
     -- Entradas al orquestador
     vrfy_in.enable       <= enable;

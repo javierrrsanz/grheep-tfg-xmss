@@ -30,12 +30,16 @@
 #define SECURE_VALID_CODE                  0x3C5A
 
 #define ZSBL_UART_ENABLE                   0
+#define BENCHMARK_MEM_ADDR                 0x00024000
 
 #define SEXT_IMM(x) ((x) | (-(((x) >> 11) & 1) << 11))
 
        .global entry
 
 entry:
+       // Enable performance counters (mcycle, minstret) by clearing mcountinhibit (0x320)
+       csrw    0x320, zero
+
        // Check if recovering from sleep state
        lui     a1, POWER_MANAGER_START_ADDRESS_20bit
        lbu     a0, POWER_MANAGER_WAKEUP_STATE_REG_OFFSET(a1)
@@ -71,14 +75,19 @@ _execute_from_flash:
 
 _copy_from_flash:
 
+       // BENCHMARK: STAGE 0 START
+       li      t0, BENCHMARK_MEM_ADDR
+       csrr    t1, mcycle
+       sw      t1, 0(t0)
+
 #if ZSBL_UART_ENABLE
-       // 1. Inicializar UART una sola vez (Reset FIFO y NCO=0xCCCC para 5MBaud)
+       // 1. Inicializar UART una sola vez (Reset FIFO y NCO para UART_BAUDRATE)
        lui     a4, UART_START_ADDRESS_20bit
        li      t6, 3
        sw      t6, 0x1c(a4)            // FIFO_CTRL = 3 (RXRST=1, TXRST=1)
        lui     t6, 0x029F0
        ori     t6, t6, 3
-       sw      t6, 0x0c(a4)            // CTRL = 0xCCCC0003 (NCO + TX + RX)
+       sw      t6, 0x0c(a4)            // CTRL = NCO + TX + RX
 
        // 2. Mensaje inicial por UART
        la      a0, msg_zsbl_start
@@ -117,29 +126,73 @@ _wait_spi_ready_cmd_pwr:
        lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
        bgez    a4, _wait_spi_ready_cmd_pwr
 
-       // Fill TX FIFO with TX data (read command 0x03 + 3B address 0x000)
-       li      a4, 0x03
+       // -------------------------------------------------------------
+       // 0. Habilitar Quad Enable (QE) en la Flash
+       // -------------------------------------------------------------
+       // 0.1 WREN (0x06): Write Enable
+       li      a4, 0x06
        sw      a4, SPI_HOST_TXDATA_REG_OFFSET(a1)
-       nop    # otherwise ready bit check is too fast
-
-_wait_spi_ready_tx_init:
-       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
-       bgez    a4, _wait_spi_ready_tx_init
-       // Read command: 0x11000003 (txonly + stdspeed + csaat + 4B)
-       lui     a4, 0x11000
-       addi    a4, a4, 3
+       lui     a4, 0x10000            // TxOnly, Standard speed, CSAAT=0, Len=0 (1 byte)
        sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
-       nop    # otherwise ready bit check is too fast
 
-_wait_spi_ready_read_prog:
-       lw      a5, SPI_HOST_STATUS_REG_OFFSET(a1)
-       bgez    a5, _wait_spi_ready_read_prog
+_wait_spi_ready_wren:
+       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    a4, _wait_spi_ready_wren
+
+       // 0.2 WSR2 (0x31) con dato 0x02 (QE bit 1 = 1)
+       li      a4, 0x0231             // Byte 0 = 0x31 (WSR2), Byte 1 = 0x02 (QE)
+       sw      a4, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     a4, 0x10000
+       addi    a4, a4, 1              // TxOnly, Standard speed, CSAAT=0, Len=1 (2 bytes)
+       sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
+
+_wait_spi_ready_wsr2:
+       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    a4, _wait_spi_ready_wsr2
 
        // -------------------------------------------------------------
-       // 1. LEER CABECERA (4 bytes = Longitud Total del FSBL)
+       // 1. Iniciar Fast Read Quad I/O (0xEB)
        // -------------------------------------------------------------
-       // Comando RX de 4 bytes con csaat=1: 0x09000003
-       lui     s0, 0x9000
+       // Fase 1: Opcode 0xEB a velocidad estándar con CSAAT=1
+       li      a4, 0xeb
+       sw      a4, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     a4, 0x11000            // TxOnly, Standard speed, CSAAT=1, Len=0 (1 byte)
+       sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
+
+_wait_spi_ready_qcmd:
+       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    a4, _wait_spi_ready_qcmd
+
+       // Fase 2: Dirección 24-bit (0x000000) + Mode (0xFF) a velocidad Quad con CSAAT=1
+       lui     a4, 0xff000            // Word = 0xFF000000 (Addr=0x000000, Mode=0xFF)
+       sw      a4, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     a4, 0x15000            // TxOnly | Quad (0x04000000) | CSAAT=1 (0x01000000)
+       addi    a4, a4, 3              // Len=3 (4 bytes)
+       sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
+
+_wait_spi_ready_qaddr:
+       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    a4, _wait_spi_ready_qaddr
+
+       // Fase 3: 4 Ciclos Dummy a velocidad Quad con CSAAT=1
+       lui     a4, 0x05000            // Dummy (0x00000000) | Quad (0x04000000) | CSAAT=1 (0x01000000)
+       addi    a4, a4, 3              // Len=3 (4 ciclos dummy)
+       sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
+
+_wait_spi_ready_qdummy:
+       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    a4, _wait_spi_ready_qdummy
+
+       // BENCHMARK: AFTER SPI INIT (CMD 0xEB)
+       li      t0, BENCHMARK_MEM_ADDR
+       csrr    t1, mcycle
+       sw      t1, 4(t0)
+
+       // -------------------------------------------------------------
+       // 1. LEER CABECERA (4 bytes = Longitud Total del FSBL) en Quad
+       // -------------------------------------------------------------
+       // Comando RX de 4 bytes con csaat=1 y velocidad Quad: 0x0D000003
+       lui     s0, 0xd000
        addi    tp, s0, 3
        sw      tp, SPI_HOST_COMMAND_REG_OFFSET(a1)
        nop
@@ -161,6 +214,11 @@ _wait_spi_hdr_data:
        li      t0, 4836
        sub     s3, s2, t0
 
+       // BENCHMARK: AFTER SPI HEADER
+       li      t0, BENCHMARK_MEM_ADDR
+       csrr    t1, mcycle
+       sw      t1, 8(t0)
+
        // -------------------------------------------------------------
        // 2. LEER METADATOS (PK 68B + SIG 4768B = 4836 bytes) -> RAM 0x00008000
        // -------------------------------------------------------------
@@ -169,6 +227,11 @@ _wait_spi_hdr_data:
        li      s4, 1                   // Mantener CS activo (csaat=1)
        jal     ra, _read_bytes_block
 
+       // BENCHMARK: AFTER SPI METADATA
+       li      t0, BENCHMARK_MEM_ADDR
+       csrr    t1, mcycle
+       sw      t1, 12(t0)
+
        // -------------------------------------------------------------
        // 3. LEER PAYLOAD FSBL -> RAM 0x00000000
        // -------------------------------------------------------------
@@ -176,6 +239,11 @@ _wait_spi_hdr_data:
        mv      a3, s3                  // payload_size
        li      s4, 0                   // Fin de transacción SPI (csaat=0 en último chunk)
        jal     ra, _read_bytes_block
+
+       // BENCHMARK: AFTER SPI PAYLOAD (TOTAL SPI END)
+       li      t0, BENCHMARK_MEM_ADDR
+       csrr    t1, mcycle
+       sw      t1, 16(t0)
 
        // -------------------------------------------------------------
        // 4. AUTENTICACIÓN DE LA CLAVE PÚBLICA (RoTPK) EN HARDWARE
@@ -218,11 +286,20 @@ _check_hash_word:
        addi    t2, t2, -1
        bnez    t2, _check_hash_word
 
+       // BENCHMARK: AFTER RoTPK CHECK
+       li      t0, BENCHMARK_MEM_ADDR
+       csrr    t1, mcycle
+       sw      t1, 20(t0)
+
 #if ZSBL_UART_ENABLE
        // RoTPK Valida
        la      a0, msg_rotpk_ok
        jal     ra, _uart_puts
 #endif
+
+       // Resetear acelerador tras HASH_ONLY para dejar DMA y FSMs en estado limpio
+       li      t0, 0x08
+       sw      t0, XMSS_CTRL_OFFSET(a2)
 
        // -------------------------------------------------------------
        // 5. VERIFICACIÓN COMPLETA DE FIRMA XMSS DEL FSBL
@@ -253,6 +330,19 @@ _wait_xmss_done:
        andi    t1, t1, 1
        beqz    t1, _wait_xmss_done
 
+       // BENCHMARK: AFTER XMSS & HW COUNTERS
+       li      t1, BENCHMARK_MEM_ADDR
+       csrr    t2, mcycle
+       sw      t2, 24(t1)
+       lw      t2, 0x40(a2)
+       sw      t2, 28(t1)
+       lw      t2, 0x44(a2)
+       sw      t2, 32(t1)
+       lw      t2, 0x48(a2)
+       sw      t2, 36(t1)
+       lw      t2, 0x4C(a2)
+       sw      t2, 40(t1)
+
        // Verificar código de validez (bits 15:0 == 0x3C5A)
        li      t2, SECURE_VALID_CODE
        slli    t3, t0, 16
@@ -263,7 +353,7 @@ _wait_xmss_done:
        li      t0, 0x02
        sw      t0, XMSS_CTRL_OFFSET(a2)
 
-// Software Reset del acelerador para dejar el hardware en estado limpio para FSBL: CTRL = 0x08
+       // Software Reset del acelerador para dejar el hardware en estado limpio para FSBL: CTRL = 0x08
        li      t0, 0x08
        sw      t0, XMSS_CTRL_OFFSET(a2)
 
@@ -280,6 +370,11 @@ _wait_xmss_done:
        fence.i
        lui     a0, 0
        addi    a0, a0, 0x180
+
+       // BENCHMARK: END ZSBL
+       li      t0, BENCHMARK_MEM_ADDR
+       csrr    t1, mcycle
+       sw      t1, 44(t0)
 
        // Hardening: Limpiar todos los registros de CPU (excepto a0)
        // para evitar filtración de metadatos o fragmentos de claves/hashes
@@ -354,12 +449,12 @@ _chunk_size_256:
        beqz    s4, _set_csaat_0
 
 _set_csaat_1:
-       lui     s0, 0x9000
+       lui     s0, 0xd000
        or      tp, s0, t4
        j       _exec_spi_cmd
 
 _set_csaat_0:
-       lui     s0, 0x8000
+       lui     s0, 0xc000
        or      tp, s0, t4
 
 _exec_spi_cmd:
@@ -440,11 +535,11 @@ msg_err_xmss:
        .align 4
        .global expected_rotpk_hash
 expected_rotpk_hash:
-       .word 0x46AA3916
-       .word 0x8FF90E7D
-       .word 0x27A38210
-       .word 0x881991E3
-       .word 0x7F641135
-       .word 0xDBA9D5B7
-       .word 0x91E6581A
-       .word 0x95C1DDDA
+       .word 0x510B0134
+       .word 0xB52F106B
+       .word 0xFCA82441
+       .word 0xB4B78483
+       .word 0xFCAE5891
+       .word 0x2C4B4520
+       .word 0xD8695793
+       .word 0xF3C17AA5
