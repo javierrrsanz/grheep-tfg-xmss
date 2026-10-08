@@ -152,6 +152,10 @@ begin
 	   if rising_edge(clk) then
 	    if reset = '1' then
 	       r.state <= S_IDLE;
+           r.done <= '0';
+           r.key <= (others => '0');
+           r.mask_input_1 <= (others => '0');
+           r.mask_input_2 <= (others => '0');
            -- Inicializar seguridad
            r.key_done <= '0';
            r.m1_done <= '0';

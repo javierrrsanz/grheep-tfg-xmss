@@ -138,9 +138,14 @@ begin
 	   if rising_edge(clk) then
 	    if reset = '1' then
 	       r.state <= S_IDLE;
+	       r.l <= (others => '0');
+	       r.height <= 0;
+	       r.parent_node <= (others => '0');
+	       r.ctr <= 0;
 	    else
 		   r <= r_in;
         end if;
        end if;
     end process;
+
 end Behavioral;

@@ -72,7 +72,7 @@ begin
         );
     end generate;
 
-    hash_indicator <= r_in.hash_sel when d.hash.busy = '0' else (others => '0');
+    hash_indicator <= r_in.hash_sel when (d.hash.busy = '0' and d.hash.mnext = '0' and r.hold_timer = 0) else (others => '0');
     chain_idle <= '1' when chain_busy = ALL_ZEROS else '0';
     msg_and_checksum <= base_w(d.message);
     msg_as_int <= unsigned(msg_and_checksum(wots_len-1-r.ctr)) when r.ctr /= wots_len else (others => '0');
@@ -182,6 +182,9 @@ begin
                         else
                             v.state := S_DONE_CHECK;
                         end if;
+                  elsif v.done_indicator /= ALL_ZEROS then
+                        -- Aún quedan cadenas completadas por vaciar a BRAM. Continuar vaciado antes de pedir DMA.
+                        v.state := S_DONE_CHECK;
                   else
                         -- Palabra consumida y faltan más. Pedir al bus DMA.
                         v.state := S_READ_SIG_REQ;
@@ -206,4 +209,5 @@ begin
         end if;
        end if;
     end process;
+
 end Behavioral;

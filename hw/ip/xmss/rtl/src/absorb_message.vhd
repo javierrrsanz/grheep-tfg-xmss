@@ -232,6 +232,11 @@ begin
        if rising_edge(clk) then
         if reset = '1' then
            r.state <= S_IDLE;
+           r.block512 <= (others => '0');
+           r.total_len <= 0;
+           r.remaining_len <= 0;
+           r.len_appended <= '0';
+           r.shift_ctr <= 0;
         elsif d.halt = '0' then
            r <= r_in;
         end if;

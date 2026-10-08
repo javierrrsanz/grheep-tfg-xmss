@@ -39,7 +39,7 @@ EXTERNAL_DOMAINS	:= 0 # TO BE UPDATED according to the number of external domain
 
 ifeq ($(TARGET),asic)
 	PADS_CFG := $(PADS_CFG_ASIC)
-else ifeq ($(filter $(TARGET),pynq-z2 nexys-a7-100t genesys2 aup-zu3 zcu102 zcu104),$(TARGET))
+else ifeq ($(filter $(TARGET),pynq-z2 nexys-a7-100t genesys2 aup-zu3 zcu102 zcu104 sim),$(TARGET))
 	PADS_CFG := $(PADS_CFG_FPGA)
 else
 	$(error ### ERROR: Unsupported target implementation: $(TARGET))

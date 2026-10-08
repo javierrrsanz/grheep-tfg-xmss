@@ -147,6 +147,24 @@ begin
 		if rising_edge(clk) then
 		    if reset = '1' then
 				r.state <= S_IDLE;
+				r.last_block <= '0';
+				r.ctr <= 0;
+				r.h1 <= (others => '0');
+				r.h2 <= (others => '0');
+				r.h3 <= (others => '0');
+				r.h4 <= (others => '0');
+				r.h5 <= (others => '0');
+				r.h6 <= (others => '0');
+				r.h7 <= (others => '0');
+				r.h8 <= (others => '0');
+				r.a <= (others => '0');
+				r.b <= (others => '0');
+				r.c <= (others => '0');
+				r.d <= (others => '0');
+				r.e <= (others => '0');
+				r.f <= (others => '0');
+				r.g <= (others => '0');
+				r.h <= (others => '0');
             elsif d.halt = '0' then
                 r <= r_in;
             end if;
