@@ -22,7 +22,7 @@ all: $(boot_rom)
 	dd if=$< of=$@ bs=1024
 
 boot_rom.elf: boot_rom.S link.ld
-	$(GCC) $(INC_FOLDERS_GCC) -Tlink.ld $< -nostdlib -static -Wl,--no-gc-sections -o $@
+	$(GCC) -mno-relax $(INC_FOLDERS_GCC) -Tlink.ld $< -nostdlib -static -Wl,--no-gc-sections -o $@
 
 boot_rom.bin: boot_rom.elf
 	$(OBJCOPY) -O binary $< $@

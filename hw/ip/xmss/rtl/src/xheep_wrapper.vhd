@@ -177,7 +177,7 @@ begin
         end if;
     end process;
 
-    process(reg_req, reg_we, reg_addr, reg_ctrl, reg_locked, latched_done, latched_valid, reg_sig_addr, reg_msg_addr, reg_mlen, reg_pk_addr)
+    process(reg_req, reg_we, reg_addr, reg_ctrl, reg_locked, latched_done, latched_valid, reg_sig_addr, reg_msg_addr, reg_mlen, reg_pk_addr, hash_result, cnt_dma, cnt_hash, cnt_wots, cnt_tree)
     begin
         reg_rdata_c <= (others => '0');
         if reg_req = '1' and reg_we = '0' then

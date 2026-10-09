@@ -81,7 +81,7 @@ module spiflash (
   logic powered_up = 0;
   logic write_enable = 0;
   logic write_enable_reset = 0;
-  logic quad_enable = 0;
+  logic quad_enable = 1;
 
   logic command_pending = 0;
   integer current_busy_cycles = 0;
@@ -184,6 +184,13 @@ module spiflash (
         if (bytecount == 2) begin
           // Simplified model:
           // - All bits to 0 except QE bit
+          if (buffer[1] == 1'b1) quad_enable = buffer[1];
+        end
+      end
+
+      if (powered_up && spi_cmd == 'h01) begin
+        if (bytecount == 3) begin
+          // Spansion WRR model: Byte 1 is SR1, Byte 2 is CR1 (bit 1 is QE)
           if (buffer[1] == 1'b1) quad_enable = buffer[1];
         end
       end

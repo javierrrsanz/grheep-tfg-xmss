@@ -113,12 +113,10 @@ _copy_from_flash:
        ori     a4, a4, 8
        sw      a4, SPI_HOST_CONTROL_REG_OFFSET(a1)
 
-       // Power up flash (0xab flash command)
+       // Power up flash (0xab flash command: 1 byte, len=0, matching w25q.c:flash_power_up)
        li      a4, 0xab
        sw      a4, SPI_HOST_TXDATA_REG_OFFSET(a1)
-       // Power up command: 0x10000003 (transmit 4 words)
        lui     a4, 0x10000
-       addi    a4, a4, 3
        sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
 
 _wait_spi_ready_cmd_pwr:
@@ -126,62 +124,125 @@ _wait_spi_ready_cmd_pwr:
        lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
        bgez    a4, _wait_spi_ready_cmd_pwr
 
-       // -------------------------------------------------------------
-       // 0. Habilitar Quad Enable (QE) en la Flash
-       // -------------------------------------------------------------
-       // 0.1 WREN (0x06): Write Enable
-       li      a4, 0x06
-       sw      a4, SPI_HOST_TXDATA_REG_OFFSET(a1)
-       lui     a4, 0x10000            // TxOnly, Standard speed, CSAAT=0, Len=0 (1 byte)
-       sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
-
-_wait_spi_ready_wren:
-       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
-       bgez    a4, _wait_spi_ready_wren
-
-       // 0.2 WSR2 (0x31) con dato 0x02 (QE bit 1 = 1)
-       li      a4, 0x0231             // Byte 0 = 0x31 (WSR2), Byte 1 = 0x02 (QE)
-       sw      a4, SPI_HOST_TXDATA_REG_OFFSET(a1)
-       lui     a4, 0x10000
-       addi    a4, a4, 1              // TxOnly, Standard speed, CSAAT=0, Len=1 (2 bytes)
-       sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
-
-_wait_spi_ready_wsr2:
-       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
-       bgez    a4, _wait_spi_ready_wsr2
+       // Retardo de guarda para que la flash Spansion complete su encendido tras 0xAB (t_RES2)
+       li      t0, 2000
+_delay_flash_pwr:
+       addi    t0, t0, -1
+       bnez    t0, _delay_flash_pwr
 
        // -------------------------------------------------------------
-       // 1. Iniciar Fast Read Quad I/O (0xEB)
+       // 0. Comprobar y Activar Bit QE (Spansion S25FL256S / w25q.c)
        // -------------------------------------------------------------
-       // Fase 1: Opcode 0xEB a velocidad estándar con CSAAT=1
-       li      a4, 0xeb
-       sw      a4, SPI_HOST_TXDATA_REG_OFFSET(a1)
-       lui     a4, 0x11000            // TxOnly, Standard speed, CSAAT=1, Len=0 (1 byte)
-       sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
+       // 0.1 Leer Configuration Register 1 (CR1) con comando 0x35
+       li      t0, 0x35
+       sw      t0, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     t0, 0x11000            // TxOnly, std, csaat=1, len=0 (1B)
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_spansion_cr1_cmd:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_spansion_cr1_cmd
 
-_wait_spi_ready_qcmd:
-       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
-       bgez    a4, _wait_spi_ready_qcmd
+       lui     t0, 0x08000            // RxOnly, std, csaat=0, len=0 (1B)
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_spansion_cr1_rx:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_spansion_cr1_rx
 
-       // Fase 2: Dirección 24-bit (0x000000) + Mode (0xFF) a velocidad Quad con CSAAT=1
-       lui     a4, 0xff000            // Word = 0xFF000000 (Addr=0x000000, Mode=0xFF)
-       sw      a4, SPI_HOST_TXDATA_REG_OFFSET(a1)
-       lui     a4, 0x15000            // TxOnly | Quad (0x04000000) | CSAAT=1 (0x01000000)
-       addi    a4, a4, 3              // Len=3 (4 bytes)
-       sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_spansion_cr1_data:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       srli    t0, t0, 8
+       andi    t0, t0, 0xff
+       beqz    t0, _wait_spansion_cr1_data
 
-_wait_spi_ready_qaddr:
-       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
-       bgez    a4, _wait_spi_ready_qaddr
+       lw      t2, SPI_HOST_RXDATA_REG_OFFSET(a1) // t2 = cr1_data
+       andi    t0, t2, 0x02           // ¿Bit 1 (QE) ya está activo?
+       bnez    t0, _spansion_qe_ok    // Si ya es 1, ¡listo!
 
-       // Fase 3: 4 Ciclos Dummy a velocidad Quad con CSAAT=1
-       lui     a4, 0x05000            // Dummy (0x00000000) | Quad (0x04000000) | CSAAT=1 (0x01000000)
-       addi    a4, a4, 3              // Len=3 (4 ciclos dummy)
-       sw      a4, SPI_HOST_COMMAND_REG_OFFSET(a1)
+       // 0.2 Leer Status Register 1 (SR1) con comando 0x05
+       li      t0, 0x05
+       sw      t0, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     t0, 0x11000            // TxOnly, std, csaat=1, len=0
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_spansion_sr1_cmd:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_spansion_sr1_cmd
 
-_wait_spi_ready_qdummy:
-       lw      a4, SPI_HOST_STATUS_REG_OFFSET(a1)
-       bgez    a4, _wait_spi_ready_qdummy
+       lui     t0, 0x08000            // RxOnly, std, csaat=0, len=0
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_spansion_sr1_rx:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_spansion_sr1_rx
+
+_wait_spansion_sr1_data:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       srli    t0, t0, 8
+       andi    t0, t0, 0xff
+       beqz    t0, _wait_spansion_sr1_data
+
+       lw      t3, SPI_HOST_RXDATA_REG_OFFSET(a1) // t3 = sr1_data
+
+       // 0.3 Write Enable: WREN (0x06)
+       li      t0, 0x06
+       sw      t0, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     t0, 0x10000            // TxOnly, std, csaat=0, len=0
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_spansion_wren:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_spansion_wren
+
+       // 0.4 Write Registers: WRR (0x01) con SR1 y CR1 (con bit 1 = 1)
+       li      t0, 0x01
+       sw      t0, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     t0, 0x11000            // TxOnly, std, csaat=1, len=0
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_wrr_cmd:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_wrr_cmd
+
+       andi    t0, t3, 0xff           // sr1_data
+       sw      t0, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     t0, 0x11000            // TxOnly, std, csaat=1, len=0
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_wrr_sr1:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_wrr_sr1
+
+       ori     t0, t2, 0x02           // cr1_data | 0x02 (QE)
+       andi    t0, t0, 0xff
+       sw      t0, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     t0, 0x10000            // TxOnly, std, csaat=0, len=0
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_wrr_cr1:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_wrr_cr1
+
+       // 0.5 Esperar a que la flash termine de grabar (flash_wait sondeando WIP en SR1)
+_wait_spansion_wip_loop:
+       li      t0, 0x05               // Read SR1
+       sw      t0, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     t0, 0x11000
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_wip_cmd:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_wip_cmd
+
+       lui     t0, 0x08000
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_wip_rx:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_wip_rx
+
+_wait_wip_data:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       srli    t0, t0, 8
+       andi    t0, t0, 0xff
+       beqz    t0, _wait_wip_data
+
+       lw      t0, SPI_HOST_RXDATA_REG_OFFSET(a1)
+       andi    t0, t0, 0x01           // Bit 0 = WIP
+       bnez    t0, _wait_spansion_wip_loop
+
+_spansion_qe_ok:
 
        // BENCHMARK: AFTER SPI INIT (CMD 0xEB)
        li      t0, BENCHMARK_MEM_ADDR
@@ -191,24 +252,14 @@ _wait_spi_ready_qdummy:
        // -------------------------------------------------------------
        // 1. LEER CABECERA (4 bytes = Longitud Total del FSBL) en Quad
        // -------------------------------------------------------------
-       // Comando RX de 4 bytes con csaat=1 y velocidad Quad: 0x0D000003
-       lui     s0, 0xd000
-       addi    tp, s0, 3
-       sw      tp, SPI_HOST_COMMAND_REG_OFFSET(a1)
-       nop
-
-_wait_spi_hdr:
-       lw      a5, SPI_HOST_STATUS_REG_OFFSET(a1)
-       bgez    a5, _wait_spi_hdr
-
-_wait_spi_hdr_data:
-       lw      a5, SPI_HOST_STATUS_REG_OFFSET(a1)
-       srli    a5, a5, 8
-       andi    a5, a5, 0xff
-       beqz    a5, _wait_spi_hdr_data
+       li      a0, 0                  // Offset 0 en flash
+       li      a2, SRAM_AUTH_META_ADDR // Destino temporal RAM
+       li      a3, 4                  // 4 bytes
+       jal     ra, _read_quad_block
 
        // Leemos la palabra de cabecera: s2 = firmware_total_size
-       lw      s2, SPI_HOST_RXDATA_REG_OFFSET(a1)
+       li      t0, SRAM_AUTH_META_ADDR
+       lw      s2, 0(t0)
 
        // Calculamos tamaño del payload: s3 = s2 - 68 (PK) - 4768 (SIG) = s2 - 4836
        li      t0, 4836
@@ -222,10 +273,10 @@ _wait_spi_hdr_data:
        // -------------------------------------------------------------
        // 2. LEER METADATOS (PK 68B + SIG 4768B = 4836 bytes) -> RAM 0x00008000
        // -------------------------------------------------------------
-       li      s1, SRAM_AUTH_META_ADDR
-       li      a3, 4836
-       li      s4, 1                   // Mantener CS activo (csaat=1)
-       jal     ra, _read_bytes_block
+       li      a0, 4                  // Offset 4 en flash
+       li      a2, SRAM_AUTH_META_ADDR // Destino RAM: 0x00008000
+       li      a3, 4836               // 4836 bytes
+       jal     ra, _read_quad_block
 
        // BENCHMARK: AFTER SPI METADATA
        li      t0, BENCHMARK_MEM_ADDR
@@ -235,10 +286,10 @@ _wait_spi_hdr_data:
        // -------------------------------------------------------------
        // 3. LEER PAYLOAD FSBL -> RAM 0x00000000
        // -------------------------------------------------------------
-       li      s1, SRAM_FSBL_ADDR
-       mv      a3, s3                  // payload_size
-       li      s4, 0                   // Fin de transacción SPI (csaat=0 en último chunk)
-       jal     ra, _read_bytes_block
+       li      a0, 4840               // Offset 4 + 4836 = 4840 en flash
+       li      a2, SRAM_FSBL_ADDR     // Destino RAM: 0x00000000
+       mv      a3, s3                 // s3 bytes
+       jal     ra, _read_quad_block
 
        // BENCHMARK: AFTER SPI PAYLOAD (TOTAL SPI END)
        li      t0, BENCHMARK_MEM_ADDR
@@ -430,61 +481,86 @@ _secure_halt:
        j       _secure_halt
 
 // --------------------------------------------------------------------
-// Subrutina: Leer a3 bytes de SPI Flash hacia s1 (RAM)
-// s1: Puntero RAM destino
-// a3: Cantidad de bytes a leer
-// s4: 1 = mantener csaat=1 en todo momento, 0 = deassert csaat en último chunk
+// Subrutina: Leer a3 bytes de SPI Flash hacia a2 (RAM) en Quad SPI (0xEB)
+// Idéntico a w25q128jw_read_quad en sw/device/bsp/w25q/w25q.c:
+//   1. Enviar Opcode 0xEB a vel. Standard con CSAAT=1 (len=0)
+//   2. Enviar Addr(24b revertido) + Mode 0xFF a vel. Quad con CSAAT=1 (len=3)
+//   3. Enviar 4 Ciclos Dummy a vel. Quad con CSAAT=1 (len=3)
+//   4. Enviar Comando RX de a3 bytes a vel. Quad con CSAAT=0 (len=a3-1)
+//   5. Drenar palabras de 32 bits de la FIFO RX hacia RAM
+// Entradas:
+//   a0: Offset en SPI Flash (24 bits)
+//   a1: Base SPI_FLASH (0x20000)
+//   a2: Puntero RAM destino
+//   a3: Cantidad de bytes a leer (múltiplo de 4)
+// Modifica: a2, t0, t1, t4, t5
 // --------------------------------------------------------------------
-_read_bytes_block:
-       beqz    a3, _read_block_ret
-       li      t3, 256
-       bge     a3, t3, _chunk_size_256
-       mv      t3, a3
+_read_quad_block:
+       beqz    a3, _read_quad_ret
 
-_chunk_size_256:
-       sub     a3, a3, t3
+       // 1. Opcode 0xEB (Fast Read Quad I/O)
+       li      t0, 0xeb
+       sw      t0, SPI_HOST_TXDATA_REG_OFFSET(a1)
+       lui     t0, 0x11000            // TxOnly | Standard | CSAAT=1 | Len=0 (1 Byte)
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_rq_cmd:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_rq_cmd
 
-       addi    t4, t3, -1              // len - 1
-       bnez    a3, _set_csaat_1
-       beqz    s4, _set_csaat_0
+       // 2. Addr revertido + Mode 0xFF a velocidad Quad
+       // REVERT_24b_ADDR(addr) | (0xFF << 24)
+       lui     t0, 0xff000
+       andi    t1, a0, 0xff           // Addr[7:0]
+       slli    t1, t1, 16             // Byte 2
+       or      t0, t0, t1
+       srli    t1, a0, 8
+       andi    t1, t1, 0xff           // Addr[15:8]
+       slli    t1, t1, 8              // Byte 1
+       or      t0, t0, t1
+       srli    t1, a0, 16
+       andi    t1, t1, 0xff           // Addr[23:16]
+       or      t0, t0, t1             // Byte 0
+       sw      t0, SPI_HOST_TXDATA_REG_OFFSET(a1)
 
-_set_csaat_1:
-       lui     s0, 0xd000
-       or      tp, s0, t4
-       j       _exec_spi_cmd
+       lui     t0, 0x15000            // TxOnly | Quad (0x04000000) | CSAAT=1 (0x01000000)
+       addi    t0, t0, 3              // Len=3 (4 Bytes)
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_rq_addr:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_rq_addr
 
-_set_csaat_0:
-       lui     s0, 0xc000
-       or      tp, s0, t4
+       // 3. 4 Ciclos Dummy a velocidad Quad
+       lui     t0, 0x05000            // Dummy | Quad (0x04000000) | CSAAT=1 (0x01000000)
+       addi    t0, t0, 3              // Len=3 (4 dummy cycles)
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_rq_dummy:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_rq_dummy
 
-_exec_spi_cmd:
-       sw      tp, SPI_HOST_COMMAND_REG_OFFSET(a1)
-       nop
+       // 4. RX a velocidad Quad con CSAAT=0 (Fin de la transacción)
+       addi    t4, a3, -1             // Len = a3 - 1
+       lui     t0, 0x0c000            // RxOnly (0x08000000) | Quad (0x04000000) | CSAAT=0
+       or      t0, t0, t4
+       sw      t0, SPI_HOST_COMMAND_REG_OFFSET(a1)
+_wait_rq_rx_cmd:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       bgez    t0, _wait_rq_rx_cmd
 
-_wait_spi_chunk_ready:
-       lw      a5, SPI_HOST_STATUS_REG_OFFSET(a1)
-       bgez    a5, _wait_spi_chunk_ready
-
-       // Cantidad de palabras de 32 bits a extraer: (t3 + 3) / 4
-       addi    t5, t3, 3
+       // 5. Drenar palabras de 32 bits de RX FIFO
+       addi    t5, a3, 3
        srli    t5, t5, 2
-
-_drain_rx_word:
-       // Esperar a que haya datos en la FIFO RX (RXQD > 0)
-       lw      a5, SPI_HOST_STATUS_REG_OFFSET(a1)
-       srli    a5, a5, 8
-       andi    a5, a5, 0xff
-       beqz    a5, _drain_rx_word
-
+_rq_drain_word:
+       lw      t0, SPI_HOST_STATUS_REG_OFFSET(a1)
+       srli    t0, t0, 8
+       andi    t0, t0, 0xff           // RXQD > 0?
+       beqz    t0, _rq_drain_word
        lw      t0, SPI_HOST_RXDATA_REG_OFFSET(a1)
-       sw      t0, 0(s1)
-       addi    s1, s1, 4
+       sw      t0, 0(a2)
+       addi    a2, a2, 4
        addi    t5, t5, -1
-       bnez    t5, _drain_rx_word
+       bnez    t5, _rq_drain_word
 
-       j       _read_bytes_block
-
-_read_block_ret:
+_read_quad_ret:
        ret
 
 #if ZSBL_UART_ENABLE
@@ -532,7 +608,7 @@ msg_err_xmss:
 // --------------------------------------------------------------------
 // Clave Pública Root of Trust esperada (Hash SHA-256 de rot_key.pk)
 // --------------------------------------------------------------------
-       .align 4
+       .balign 4
        .global expected_rotpk_hash
 expected_rotpk_hash:
        .word 0x510B0134
