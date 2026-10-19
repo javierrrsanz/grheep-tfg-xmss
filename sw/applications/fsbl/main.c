@@ -1,60 +1,34 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "gr_heep.h"
 #include "x-heep.h"
 #include "hart.h"
 #include "csr.h"
-#include "fast_intr_ctrl.h"
 #include "w25q128jw.h"
 #include "uart.h"
 
-#define PRINTF_IN_FPGA  0
-#define PRINTF_IN_SIM   0
-
-#if (TARGET_SIM && PRINTF_IN_SIM) || (PRINTF_IN_FPGA && !TARGET_SIM)
-    #include <stdio.h>
-    #define PRINTF(fmt, ...)    printf(fmt, ## __VA_ARGS__)
-#else
-    #define PRINTF(...)
-#endif
+#include "params.h"
+#include "xmss.h"
+#include "xmss_commons.h"
+#include "sha256.h"
 
 // ============================================================================
-// DEFINICIONES DE SEGURIDAD, REGISTROS Y MAPA DE MEMORIA
+// MAPA DE MEMORIA Y OFFSETS (IDÉNTICOS AL ARRANQUE HW EXP-1)
 // ============================================================================
-#define SECURE_VALID_CODE    0x3C5A       /* Código multibit seguro para firma válida */
-#define XMSS_CTRL_OFFSET     0x0000u      /* Control: bit 0=Start, 1=Ack, 2=Hash, 3=Reset, 31=Lock */
-#define XMSS_STATUS_OFFSET   0x0004u      /* Estado: bits [15:0]=código validación, bit 16=done */
-#define XMSS_SIG_ADDR_OFFSET 0x0008u      /* Puntero DMA a la firma XMSS en SRAM */
-#define XMSS_MSG_ADDR_OFFSET 0x0010u      /* Puntero DMA al mensaje/payload en SRAM */
-#define XMSS_MLEN_OFFSET     0x0014u      /* Longitud del mensaje en bits */
-#define XMSS_PK_ADDR_OFFSET  0x0018u      /* Puntero DMA a la clave pública (68 bytes) */
+#define FLASH_APP_OFFSET     0x010000     /* Offset de la app en Flash SPI (64 KB) */
 
-#define SRAM_APP_ADDR        0x018000     /* Destino de ejecución del firmware de usuario */
-#define SRAM_AUTH_META_ADDR  0x010000     /* Búfer temporal de autenticación (PK + Firma) */
-
-#define FLASH_APP_OFFSET     0x010000     /* Offset de la aplicación en la memoria SPI Flash */
+#define SRAM_AUTH_META_ADDR  0x010000     /* Buffer temporal de metadatos (PK 68B + Sig 2500B) */
+#define SRAM_APP_ADDR        0x018000     /* Destino de ejecución de la App de usuario */
+#define SRAM_MOUT_ADDR       0x020000     /* Buffer salida mensaje autenticado */
 
 #define BENCHMARK_MEM_ADDR   0x00024000   /* Banco 4 de SRAM: métricas compartidas con ZSBL */
 
-volatile bool xmss_finished = false;
-
-// ============================================================================
-// RUTINAS DE HARDWARE (XMSS & Interrupciones)
-// ============================================================================
-static inline void xmss_write32(uint32_t offset, uint32_t value) {
-    volatile uint32_t *ptr = (volatile uint32_t *)(XMSS_PERIPH_START_ADDRESS + offset);
-    *ptr = value;
-}
-
-static inline uint32_t xmss_read32(uint32_t offset) {
-    volatile uint32_t *ptr = (volatile uint32_t *)(XMSS_PERIPH_START_ADDRESS + offset);
-    return *ptr;
-}
-
-void fic_irq_ext_peripheral(void) {
-    xmss_finished = true;
-    xmss_write32(XMSS_CTRL_OFFSET, 0x02); // ACK
+static inline uint32_t get_mcycle(void) {
+    uint32_t cycles;
+    __asm__ volatile ("csrr %0, mcycle" : "=r" (cycles));
+    return cycles;
 }
 
 void secure_halt(void) {
@@ -63,14 +37,8 @@ void secure_halt(void) {
     }
 }
 
-static inline uint32_t get_mcycle(void) {
-    uint32_t cycles;
-    __asm__ volatile ("csrr %0, mcycle" : "=r" (cycles));
-    return cycles;
-}
-
 // ============================================================================
-// SALIDA UART "LOW-COST" BARE-METAL PARA INFORME CONSOLIDADO (SIN LIBC/STDIO)
+// DRIVER UART BARE-METAL LIGERO PARA EL INFORME CONSOLIDADO (SIN LIBC)
 // ============================================================================
 static uart_t g_uart;
 
@@ -83,7 +51,6 @@ static void uart_init_for_report(void) {
     #else
     g_uart.nco         = ((uint64_t)g_uart.baudrate << (NCO_WIDTH + 4)) / g_uart.clk_freq_hz;
     #endif
-
     uart_init(&g_uart);
 }
 
@@ -171,188 +138,99 @@ void print_row(const char *name, uint32_t cycles) {
 }
 
 // ============================================================================
-// FIRST-STAGE BOOTLOADER (FSBL - ETAPA 1)
+// FIRST-STAGE BOOTLOADER (FSBL - ETAPA 1 EN SRAM @ 0x00000000)
 // ============================================================================
 int main(void) {
-    // 0. MARCA INICIAL FSBL
+    // Habilitar contadores de rendimiento (mcycle, minstret) limpiando mcountinhibit (CSR 0x320)
+    __asm__ volatile ("csrw 0x320, zero");
+
     uint32_t fsbl_start = get_mcycle();
 
-    PRINTF("\n==============================================\n");
-    PRINTF("---    X-HEEP FSBL (ETAPA 1 - SRAM)        ---\n");
-    PRINTF("==============================================\n");
-
-    // 1. CONFIGURACIÓN DE INTERRUPCIONES
-    enable_fast_interrupt(kExt_peri_fic_e, true);
-    CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
-    
-    // Habilitamos solo la interrupción del XMSS (bit 31)
-    uint32_t intr_mask = (1u << 31);
-    CSR_SET_BITS(CSR_REG_MIE, intr_mask);
-
-    // ========================================================================
-    // 2. LECTURA FÍSICA DESDE LA SPI FLASH A LA SRAM
-    // ========================================================================
-    PRINTF("[FSBL] Inicializando bus quad SPI Flash...\n");
-    
+    // 1. Inicializar bus Quad SPI Flash
     if (w25q128jw_init(spi_flash) != FLASH_OK) {
         secure_halt();
     }
     uint32_t fsbl_spi_init_end = get_mcycle();
 
-    uint32_t firmware_total_size = 0;
-    
-    // Leemos los primeros 4 bytes de la cabecera (offset 0x010000)
-    if (w25q128jw_read_quad(FLASH_APP_OFFSET, &firmware_total_size, 4) != FLASH_OK) {
+    // 2. Leer cabecera de tamaño de la App (4 bytes) desde FLASH_APP_OFFSET (0x010000)
+    uint32_t app_total_size = 0;
+    if (w25q128jw_read_quad(FLASH_APP_OFFSET, &app_total_size, 4) != FLASH_OK) {
         secure_halt();
     }
     uint32_t fsbl_spi_hdr_end = get_mcycle();
 
-    PRINTF("[FSBL] Cabecera leida. Tamaño total App: %d bytes.\n", firmware_total_size);
-    
-    uint32_t payload_size = firmware_total_size - 68 - 4768;
-    
-    uint32_t pk_ptr  = SRAM_AUTH_META_ADDR;              // 68 bytes
-    uint32_t sig_ptr = SRAM_AUTH_META_ADDR + 68;         // 4768 bytes
-    uint32_t app_ptr = SRAM_APP_ADDR;                    // payload_size bytes (destino final directo en 0x018000)
+    uint32_t app_payload_size = app_total_size - 68 - 2500;
 
-    PRINTF("[FSBL] Leyendo metadatos de autenticacion (PK + Firma, 4836 bytes)...\n");
-    if (w25q128jw_read_quad(FLASH_APP_OFFSET + 4, (uint32_t*)SRAM_AUTH_META_ADDR, 68 + 4768) != FLASH_OK) {
+    // 3. Leer metadatos de autenticación de la App (PK 68B + Firma RFC 8391 Nativa 2500B)
+    if (w25q128jw_read_quad(FLASH_APP_OFFSET + 4, (uint32_t*)SRAM_AUTH_META_ADDR, 68 + 2500) != FLASH_OK) {
         secure_halt();
     }
     uint32_t fsbl_spi_meta_end = get_mcycle();
 
-    PRINTF("[FSBL] Leyendo Payload directamente a 0x%08X (%d bytes)...\n", SRAM_APP_ADDR, payload_size);
-    if (w25q128jw_read_quad(FLASH_APP_OFFSET + 4 + 68 + 4768, (uint32_t*)SRAM_APP_ADDR, payload_size) != FLASH_OK) {
+    // 4. Leer Payload de la App directamente a SRAM_APP_ADDR (0x018000) y preparar sm_buf
+    uint8_t *app_pk_ptr = (uint8_t *)SRAM_AUTH_META_ADDR;
+    uint8_t *sm_buf     = (uint8_t *)(SRAM_AUTH_META_ADDR + 68);
+    uint8_t *mout_buf   = (uint8_t *)SRAM_MOUT_ADDR;
+    uint8_t *app_pay    = (uint8_t *)SRAM_APP_ADDR;
+
+    if (w25q128jw_read_quad(FLASH_APP_OFFSET + 4 + 68 + 2500, (uint32_t*)SRAM_APP_ADDR, app_payload_size) != FLASH_OK) {
         secure_halt();
     }
+    memcpy(sm_buf + 2500, app_pay, app_payload_size);
     uint32_t fsbl_spi_end = get_mcycle();
-    
-    PRINTF("[FSBL] Descarga completada.\n");
 
-    // ========================================================================
-    // 3. VALIDACIÓN DE LA CLAVE PÚBLICA DE LA APP POR HARDWARE (HASH_ONLY)
-    // ========================================================================
-    PRINTF("[FSBL] Validando Clave Publica de la App contra Hash esperado en FSBL...\n");
-    
-    // Reset del acelerador por software
-    xmss_write32(XMSS_CTRL_OFFSET, 0x08);
+    // 5. Validación de la App PK mediante SHA-256 en Software
+    SHA256_CTX sha_ctx;
+    uint8_t app_pk_hash[32];
+    sha256_init(&sha_ctx);
+    sha256_update(&sha_ctx, app_pk_ptr, 68);
+    sha256_final(&sha_ctx, app_pk_hash);
 
-    xmss_write32(XMSS_PK_ADDR_OFFSET, pk_ptr);
-    xmss_write32(XMSS_MLEN_OFFSET, 68 * 8); // 544 bits
-    
-    xmss_finished = false;
-    xmss_write32(XMSS_CTRL_OFFSET, 0x04); // Start HASH_ONLY
-    
-    while (!xmss_finished) {
-        CSR_CLEAR_BITS(CSR_REG_MSTATUS, 0x8);
-        if (!xmss_finished) {
-            wait_for_interrupt();
-        }
-        CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
-    }
-    
-    // Hash SHA-256 matemático real de la Clave Publica de la App (app_key.pk en Flash)
+    // Hash esperado de app_key.pk
     const uint32_t expected_app_pk_hash[8] = {
         0x9030C723, 0x418B4D68, 0xD1EF98BD, 0xFD5F8152,
         0xFABA1F78, 0xB694865A, 0x8086CA14, 0xC41D7021
     };
-
+    uint8_t expected_app_hash_bytes[32];
     for (int i = 0; i < 8; i++) {
-        if (xmss_read32(0x20 + (i * 4)) != expected_app_pk_hash[i]) {
-            secure_halt();
-        }
+        uint32_t w = expected_app_pk_hash[i];
+        expected_app_hash_bytes[i*4 + 0] = (w >> 24) & 0xFF;
+        expected_app_hash_bytes[i*4 + 1] = (w >> 16) & 0xFF;
+        expected_app_hash_bytes[i*4 + 2] = (w >> 8) & 0xFF;
+        expected_app_hash_bytes[i*4 + 3] = w & 0xFF;
     }
-    
+
+    if (memcmp(app_pk_hash, expected_app_hash_bytes, 32) != 0) {
+        secure_halt(); // App PK inválida
+    }
     uint32_t fsbl_pk_end = get_mcycle();
-    PRINTF("[FSBL] Clave Publica de la App AUTENTICADA con exito.\n");
 
-    // Resetear acelerador tras HASH_ONLY para dejar DMA y FSMs en estado limpio
-    xmss_write32(XMSS_CTRL_OFFSET, 0x08);
+    // 6. Verificación Criptográfica XMSS de la App en CPU (Zero-Unpack RFC 8391)
+    unsigned long long smlen_app = 2500 + app_payload_size;
+    unsigned long long mlen_out_app = 0;
+    xmss_stage_cycles_t fsbl_stages;
 
-    // ========================================================================
-    // 4. PARSEO Y CONFIGURACIÓN DEL ACELERADOR XMSS PARA VERIFICACIÓN DE LA APP
-    // ========================================================================
-    PRINTF("[FSBL] Configurando Acelerador Hardware para verificacion de firma...\n");
-    xmss_write32(XMSS_SIG_ADDR_OFFSET, sig_ptr);
-    xmss_write32(XMSS_MSG_ADDR_OFFSET, app_ptr);
-    xmss_write32(XMSS_MLEN_OFFSET,     payload_size * 8);
-    xmss_write32(XMSS_PK_ADDR_OFFSET, pk_ptr);
-
-    uint32_t fsbl_xmss_setup_end = get_mcycle();
-
-    // 5. LANZAR VERIFICACIÓN
-    PRINTF("[FSBL] Ejecutando verificacion criptografica XMSS de la App por Hardware...\n");
-    xmss_finished = false;
-    xmss_write32(XMSS_CTRL_OFFSET, 1u);
-
-    while (!xmss_finished) {
-        CSR_CLEAR_BITS(CSR_REG_MSTATUS, 0x8);
-        if (!xmss_finished) {
-            wait_for_interrupt();
-        }
-        CSR_SET_BITS(CSR_REG_MSTATUS, 0x8);
+    int status_app = xmss_sign_open_profiled(mout_buf, &mlen_out_app, sm_buf, smlen_app, app_pk_ptr, &fsbl_stages);
+    if (status_app != 0 || mlen_out_app != app_payload_size) {
+        secure_halt(); // Firma App inválida
     }
-
-    // 6. TOMA DE DECISIÓN CRÍTICA
-    uint32_t status = xmss_read32(XMSS_STATUS_OFFSET);
-    PRINTF("[FSBL] Resultado Verificacion HW: Status = 0x%08X (Codigo: 0x%04X)\n", status, (uint16_t)(status & 0xFFFFu));
-
-    if ((status & 0xFFFFu) != SECURE_VALID_CODE) {
-        secure_halt();
-    }
-
     uint32_t fsbl_xmss_end = get_mcycle();
-    uint32_t fsbl_hw_dma  = xmss_read32(0x40);
-    uint32_t fsbl_hw_hash = xmss_read32(0x44);
-    uint32_t fsbl_hw_wots = xmss_read32(0x48);
-    uint32_t fsbl_hw_tree = xmss_read32(0x4C);
 
-    PRINTF("[FSBL] Exito: Firma de la App validada correctamente por HW.\n");
-
-    // Limpieza de interrupciones de forma inmediata
-    CSR_CLEAR_BITS(CSR_REG_MSTATUS, 0x8);
-    CSR_CLEAR_BITS(CSR_REG_MIE, intr_mask);
-    enable_fast_interrupt(kExt_peri_fic_e, false);
-
-    PRINTF("[FSBL] Preparando salto a Aplicacion de Usuario...\n");
-    
-    // Hardening: Limpieza de SRAM (Buffer Scrubbing seguro a 32 bits, anti dead-store elimination)
+    // 7. Hardening: Scrubbing / Zeroization de SRAM de buffers temporales
     volatile uint32_t *scrub_ptr = (volatile uint32_t *)SRAM_AUTH_META_ADDR;
-    uint32_t scrub_words = (68 + 4768) / sizeof(uint32_t); // 1209 palabras
-    uint32_t i = 0;
-    for (; i + 3 < scrub_words; i += 4) {
-        scrub_ptr[i]     = 0;
-        scrub_ptr[i + 1] = 0;
-        scrub_ptr[i + 2] = 0;
-        scrub_ptr[i + 3] = 0;
-    }
-    for (; i < scrub_words; i++) {
+    uint32_t scrub_words = (68 + 2500 + app_payload_size + 3) / sizeof(uint32_t);
+    for (uint32_t i = 0; i < scrub_words; i++) {
         scrub_ptr[i] = 0;
     }
-
-    // Hardening: Zeroization de registros MMIO del acelerador XMSS
-    xmss_write32(XMSS_SIG_ADDR_OFFSET, 0u);
-    xmss_write32(XMSS_MSG_ADDR_OFFSET, 0u);
-    xmss_write32(XMSS_MLEN_OFFSET,     0u);
-    xmss_write32(XMSS_PK_ADDR_OFFSET,  0u);
-
-    // Hardening: Hardware Lockdown definitivo (Sticky Lock Bit 31 + Reset Bit 3)
-    // El acelerador queda en reset continuo y el DMA queda físicamente aislado del bus.
-    xmss_write32(XMSS_CTRL_OFFSET, 0x80000008u);
-
-    // Sincronizar memoria de instrucciones y pipeline
     __asm__ volatile ("fence.i");
-
     uint32_t fsbl_scrub_end = get_mcycle();
-    uint32_t fsbl_end = get_mcycle();
+    uint32_t fsbl_end = fsbl_scrub_end;
 
     // ========================================================================
-    // 7. EMISIÓN DEL INFORME CONSOLIDADO (UART LOW-COST)
+    // 9. LECTURA DE MÉTRICAS ZSBL Y EMISIÓN DEL INFORME CONSOLIDADO (UART)
     // ========================================================================
-    // Inicialización del hardware UART solo ahora, tras finalizar todas las mediciones
     uart_init_for_report();
 
-    // Lectura de los contadores guardados por ZSBL en Banco 4 (0x00024000)
     volatile uint32_t *zsbl_bench = (volatile uint32_t *)BENCHMARK_MEM_ADDR;
     uint32_t zsbl_start        = zsbl_bench[0];
     uint32_t zsbl_spi_init_end = zsbl_bench[1];
@@ -367,7 +245,7 @@ int main(void) {
     uint32_t zsbl_hw_tree      = zsbl_bench[10];
     uint32_t zsbl_end          = zsbl_bench[11];
 
-    // Cálculo de diferencias de ciclos: ZSBL
+    // Diferencias ZSBL
     uint32_t z_spi_init = zsbl_spi_init_end - zsbl_start;
     uint32_t z_spi_hdr  = zsbl_spi_hdr_end  - zsbl_spi_init_end;
     uint32_t z_spi_meta = zsbl_spi_meta_end - zsbl_spi_hdr_end;
@@ -376,73 +254,70 @@ int main(void) {
     uint32_t z_rotpk    = zsbl_rotpk_end    - zsbl_spi_end;
     uint32_t z_xmss     = zsbl_xmss_end     - zsbl_rotpk_end;
     uint32_t z_total    = zsbl_end          - zsbl_start;
-    
+
     // Inter-stage Handoff
     uint32_t handoff    = fsbl_start - zsbl_end;
 
-    // Cálculo de diferencias de ciclos: FSBL
+    // Diferencias FSBL
     uint32_t f_spi_init = fsbl_spi_init_end - fsbl_start;
     uint32_t f_spi_hdr  = fsbl_spi_hdr_end  - fsbl_spi_init_end;
     uint32_t f_spi_meta = fsbl_spi_meta_end - fsbl_spi_hdr_end;
     uint32_t f_spi_pay  = fsbl_spi_end      - fsbl_spi_meta_end;
     uint32_t f_spi_tot  = fsbl_spi_end      - fsbl_start;
     uint32_t f_pk       = fsbl_pk_end       - fsbl_spi_end;
-    uint32_t f_setup    = fsbl_xmss_setup_end - fsbl_pk_end;
-    uint32_t f_xmss     = fsbl_xmss_end     - fsbl_xmss_setup_end;
+    uint32_t f_xmss     = fsbl_xmss_end     - fsbl_pk_end;
     uint32_t f_scrub    = fsbl_scrub_end    - fsbl_xmss_end;
     uint32_t f_total    = fsbl_end          - fsbl_start;
-    
+
     // Total Pipeline
     uint32_t total_pipeline = fsbl_end - zsbl_start;
 
     print_str("\n\n================================================================================\n");
-    print_str("   X-HEEP POST-QUANTUM SECURE BOOT BENCHMARK REPORT (XMSS-SHA2_10_256)\n");
+    print_str("   X-HEEP POST-QUANTUM SECURE BOOT BENCHMARK REPORT (100% SOFTWARE / CPU)\n");
     print_str("================================================================================\n");
-    print_str(" Accelerator Config : HASH_CORES = 4 | HASH_CHAINS = 4\n");
+    print_str(" Execution Mode     : 2-Stage Pure CPU Verification (ZSBL ROM + FSBL SRAM)\n");
+    print_str(" Target Processor   : RISC-V 32-bit (cv32e40p) en Genesys 2 @ 15.0 MHz\n");
     print_str(" Target Frequencies : Sim = 100.0 MHz | FPGA = 15.0 MHz\n");
     print_str("--------------------------------------------------------------------------------\n");
     print_str(" BOOT STAGE / OPERATION           |      CYCLES |  TIME @ 100MHz |  TIME @ 15MHz\n");
     print_str("--------------------------------------------------------------------------------\n");
-    print_str(" [STAGE 0: ZSBL - BOOT ROM]\n");
+    print_str(" [STAGE 0: ZSBL - BOOT ROM (SW)]\n");
     print_row("   1. SPI Flash Subsystem (FSBL) ", z_spi_tot);
     print_row("      -> 1.1. QSPI Host Setup    ", z_spi_init);
     print_row("      -> 1.2. Read Header (4 B)  ", z_spi_hdr);
     print_row("      -> 1.3. Read Auth Metadata ", z_spi_meta);
     print_row("      -> 1.4. Read Payload (FSBL)", z_spi_pay);
-    print_row("   2. RoTPK SHA-256 HW Check     ", z_rotpk);
-    print_row("   3. XMSS FSBL HW Verify        ", z_xmss);
-    print_row("      -> DMA Wait Overhead       ", zsbl_hw_dma);
+    print_row("   2. RoTPK SHA-256 SW Check     ", z_rotpk);
+    print_row("   3. XMSS FSBL SW Verify        ", z_xmss);
     print_row("      -> Hash Message (Payload)  ", zsbl_hw_hash);
     print_row("      -> WOTS+ Chains            ", zsbl_hw_wots);
     print_row("      -> L-Tree & Root           ", zsbl_hw_tree);
-    print_row(" -> Total ZSBL Execution         ", z_total);
+    print_row(" -> Total ZSBL Execution (SW)    ", z_total);
     print_str("--------------------------------------------------------------------------------\n");
     print_row(" [INTER-STAGE HANDOFF]           ", handoff);
     print_str("--------------------------------------------------------------------------------\n");
-    print_str(" [STAGE 1: FSBL - SRAM]\n");
+    print_str(" [STAGE 1: FSBL - SRAM (SW)]\n");
     print_row("   1. SPI Flash Subsystem (App)  ", f_spi_tot);
     print_row("      -> 1.1. QSPI Driver Init   ", f_spi_init);
     print_row("      -> 1.2. Read Header (4 B)  ", f_spi_hdr);
     print_row("      -> 1.3. Read Auth Metadata ", f_spi_meta);
     print_row("      -> 1.4. Read Payload (App) ", f_spi_pay);
-    print_row("   2. App PK SHA-256 HW Check    ", f_pk);
-    print_row("   3. XMSS Accelerator Setup     ", f_setup);
-    print_row("   4. XMSS App HW Verify         ", f_xmss);
-    print_row("      -> DMA Wait Overhead       ", fsbl_hw_dma);
-    print_row("      -> Hash Message (Payload)  ", fsbl_hw_hash);
-    print_row("      -> WOTS+ Chains            ", fsbl_hw_wots);
-    print_row("      -> L-Tree & Root           ", fsbl_hw_tree);
-    print_row("   5. Limpieza & HW Lockdown     ", f_scrub);
-    print_row(" -> Total FSBL Execution         ", f_total);
+    print_row("   2. App PK SHA-256 SW Check    ", f_pk);
+    print_row("   3. XMSS App SW Verify         ", f_xmss);
+    print_row("      -> Hash Message (Payload)  ", fsbl_stages.hash_cycles);
+    print_row("      -> WOTS+ Chains            ", fsbl_stages.wots_cycles);
+    print_row("      -> L-Tree & Root           ", fsbl_stages.tree_cycles);
+    print_row("   4. Limpieza & Scrubbing SRAM  ", f_scrub);
+    print_row(" -> Total FSBL Execution (SW)    ", f_total);
     print_str("--------------------------------------------------------------------------------\n");
-    print_row(" TOTAL SECURE BOOT PIPELINE      ", total_pipeline);
+    print_row(" TOTAL SECURE BOOT PIPELINE (SW) ", total_pipeline);
     print_str("================================================================================\n\n");
 
-    PRINTF("[FSBL] === INICIANDO APLICACION DE USUARIO (0x00018180) ===\n\n");
-    
-    // Salto a la aplicación de usuario (0x018180)
+    // 10. Salto a la aplicación de usuario (0x018180)
     ((void (*)(void))(SRAM_APP_ADDR + 0x180))();
 
-    while(1) { __asm__ volatile("wfi"); }
+    while (1) {
+        __asm__ volatile ("wfi");
+    }
     return 0;
 }
