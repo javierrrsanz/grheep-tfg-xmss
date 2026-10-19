@@ -131,4 +131,5 @@ with open(filename + ".sv", "w") as f:
 
     f.write(license)
     s = Template(module)
-    f.write(s.substitute(filename=filename, size=int(len(rom)/4), content=rom_str))
+    modulename = os.path.basename(filename)
+    f.write(s.substitute(filename=modulename, size=int(len(rom)/4), content=rom_str))

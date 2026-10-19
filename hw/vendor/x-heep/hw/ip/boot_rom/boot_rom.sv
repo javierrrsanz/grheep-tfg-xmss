@@ -14,7 +14,7 @@
  */
 
 // Auto-generated code
-module hw/vendor/x-heep/hw/ip/boot_rom/boot_rom
+module boot_rom
   import reg_pkg::*;
 (
   input  reg_req_t     reg_req_i,
